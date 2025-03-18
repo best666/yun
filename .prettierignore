@@ -1,0 +1,10 @@
+pnpm-lock.yaml
+CHANGELOG*.md
+/dist/*
+.local
+/node_modules/**
+
+**/*.svg
+**/*.sh
+
+/public/*
