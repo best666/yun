@@ -1,13 +1,39 @@
 {
+	"tabBar": {
+	    "list": [{
+	      "pagePath": "pages/index/index",
+	      "text": "首页"
+	    },{
+	      "pagePath": "pages/post/post",
+	      "text": "热门"
+	    },{
+	      "pagePath": "pages/profile/profile",
+	      "text": "我的"
+	    }]
+	  },
 	"pages": [{
 		"path": "pages/index/index",
 		"style": {
-			"navigationBarTitleText": "uni-app"
+			"navigationBarTitleText": "首页"
+		}
+	},
+	{
+		"path" : "pages/post/post",
+		"style" : 
+		{
+			"navigationBarTitleText" : "post"
+		}
+	},
+	{
+		"path" : "pages/profile/profile",
+		"style" : 
+		{
+			"navigationBarTitleText" : "peofile"
 		}
 	}],
 	"globalStyle": {
 		"navigationBarTextStyle": "black",
-		"navigationBarTitleText": "uni-app",
+		"navigationBarTitleText": "yun",
 		"navigationBarBackgroundColor": "#F8F8F8",
 		"backgroundColor": "#F8F8F8",
 		"app-plus": {

@@ -1,0 +1,1 @@
+{"version":3,"file":"profile.js","sources":["pages/profile/profile.vue?type=page"],"sourcesContent":["import MiniProgramPage from '/Users/wangchao/Documents/best/project/yun/packages/ui/pages/profile/profile.vue'\nwx.createPage(MiniProgramPage)"],"names":[],"mappings":";;;;;;;;;;;;AACA,GAAG,WAAW,eAAe;"}
