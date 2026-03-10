@@ -1,0 +1,144 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== 用户模块 ====================
+
+/// 用户表
+model User {
+  id        Int      @id @default(autoincrement())
+  openid    String   @unique @db.VarChar(64) /// 微信openid
+  nickname  String?  @db.VarChar(50)
+  avatar    String?  @db.VarChar(500)
+  phone     String?  @db.VarChar(20)
+  gender    Int      @default(0) /// 0未知 1男 2女
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  favorites  Favorite[]
+  reviews    Review[]
+  collections Collection[]
+
+  @@map("users")
+}
+
+// ==================== 美食模块 ====================
+
+/// 美食分类
+model Category {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(50)
+  icon      String?  @db.VarChar(500)
+  sort      Int      @default(0)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  foods Food[]
+
+  @@map("categories")
+}
+
+/// 美食
+model Food {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(100)
+  description String?  @db.Text
+  cover       String?  @db.VarChar(500) /// 封面图
+  images      String?  @db.Text /// JSON 图片数组
+  price       Decimal? @db.Decimal(10, 2)
+  tags        String?  @db.VarChar(500) /// 标签，逗号分隔
+  categoryId  Int      @map("category_id")
+  shopId      Int?     @map("shop_id")
+  isActive    Boolean  @default(true) @map("is_active")
+  viewCount   Int      @default(0) @map("view_count")
+  likeCount   Int      @default(0) @map("like_count")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  category  Category   @relation(fields: [categoryId], references: [id])
+  shop      Shop?      @relation(fields: [shopId], references: [id])
+  favorites Favorite[]
+  reviews   Review[]
+
+  @@index([categoryId])
+  @@index([shopId])
+  @@map("foods")
+}
+
+// ==================== 店铺模块 ====================
+
+/// 店铺
+model Shop {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(100)
+  description String?  @db.Text
+  cover       String?  @db.VarChar(500)
+  address     String?  @db.VarChar(300)
+  phone       String?  @db.VarChar(20)
+  latitude    Decimal? @db.Decimal(10, 7)
+  longitude   Decimal? @db.Decimal(10, 7)
+  rating      Decimal  @default(0) @db.Decimal(2, 1)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  foods Food[]
+
+  @@map("shops")
+}
+
+// ==================== 互动模块 ====================
+
+/// 收藏
+model Favorite {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  foodId    Int      @map("food_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+  food Food @relation(fields: [foodId], references: [id])
+
+  @@unique([userId, foodId])
+  @@map("favorites")
+}
+
+/// 评价
+model Review {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  foodId    Int      @map("food_id")
+  content   String?  @db.Text
+  rating    Int      @default(5) /// 1-5星
+  images    String?  @db.Text /// JSON 图片数组
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id])
+  food Food @relation(fields: [foodId], references: [id])
+
+  @@index([userId])
+  @@index([foodId])
+  @@map("reviews")
+}
+
+/// 用户收藏夹
+model Collection {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  name      String   @db.VarChar(50)
+  cover     String?  @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("collections")
+}
