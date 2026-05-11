@@ -25,9 +25,9 @@
   },
   "scripts": {
     "openapi": "openapi-ts",
-    "init-husky": "git init && husky",
+    "init-husky": "node -e \"console.log('skip app-level husky init in monorepo')\"",
     "init-baseFiles": "node ./scripts/create-base-files.js",
-    "prepare": "pnpm init-husky & pnpm init-baseFiles",
+    "prepare": "pnpm init-baseFiles",
     "predev": "pnpm init-baseFiles",
     "predev:app": "pnpm init-baseFiles",
     "predev:mp": "pnpm init-baseFiles",
@@ -120,11 +120,11 @@
     "dayjs": "1.11.10",
     "pinia": "2.0.36",
     "pinia-plugin-persistedstate": "3.2.1",
+    "uview-plus": "^3.3.36",
     "vue": "^3.4.21",
     "vue-i18n": "9.1.9",
     "vue-router": "4.5.1",
-    "z-paging": "2.8.7",
-    "uview-plus": "^3.3.36"
+    "z-paging": "2.8.7"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",

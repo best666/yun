@@ -1,0 +1,8 @@
+name: Archived Auto Merge Main to Other Branches
+
+on:
+  workflow_dispatch:
+
+# Archived from apps/app/.github/workflows/auto-merge.yml.disabled.
+# This workflow matched the old upstream template branch model and is not
+# enabled for the current monorepo. Keep it here only as reference.

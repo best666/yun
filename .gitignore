@@ -12,6 +12,9 @@ dist/
 .env.*
 !.env.example
 
+# monorepo: 保留的历史子仓库备份，避免被根仓库跟踪
+apps/app/.git.backup-single-repo/
+
 # IDE
 .idea/
 .vscode/

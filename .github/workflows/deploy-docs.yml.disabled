@@ -1,0 +1,8 @@
+# Archived workflow
+#
+# The original VitePress deploy workflow came from apps/app/.github/workflows/deploy.yml,
+# but the current monorepo does not install VitePress dependencies.
+# Keep this file as an archive only. Rename it to .yml and update the build command
+# after adding the required docs dependencies back into the workspace.
+
+name: Archived Docs Deploy
