@@ -25,15 +25,20 @@ const LOGIN_PAGE = '/pages/login/index'
 export const toLoginPage = debounce((options: ToLoginPageOptions = {}) => {
   const { mode = 'navigateTo', queryString = '' } = options
 
-  const url = `${LOGIN_PAGE}${queryString}`
-
   // 获取当前页面路径
   const currentPage = getLastPage()
   const currentPath = `/${currentPage.route}`
+  const currentFullPath = currentPage.$page?.fullPath || currentPath
   // 如果已经在登录页，则不跳转
   if (currentPath === LOGIN_PAGE) {
     return
   }
+
+  const params = new URLSearchParams(queryString.replace(/^\?/, ''))
+  if (!params.has('redirect')) {
+    params.set('redirect', currentFullPath)
+  }
+  const url = `${LOGIN_PAGE}${params.toString() ? `?${params.toString()}` : ''}`
 
   if (mode === 'navigateTo') {
     uni.navigateTo({ url })

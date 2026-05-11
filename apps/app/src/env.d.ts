@@ -15,6 +15,12 @@ interface ImportMetaEnv {
   readonly VITE_SERVER_PORT: string
   /** 后台接口地址 */
   readonly VITE_SERVER_BASEURL: string
+  /** 微信小程序 develop 环境接口地址 */
+  readonly VITE_SERVER_BASEURL_WEIXIN_DEVELOP?: string
+  /** 微信小程序 trial 环境接口地址 */
+  readonly VITE_SERVER_BASEURL_WEIXIN_TRIAL?: string
+  /** 微信小程序 release 环境接口地址 */
+  readonly VITE_SERVER_BASEURL_WEIXIN_RELEASE?: string
   /** H5是否需要代理 */
   readonly VITE_APP_PROXY_ENABLE: 'true' | 'false'
   /** H5是否需要代理，需要的话有个前缀 */

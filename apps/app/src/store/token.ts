@@ -5,6 +5,7 @@ import type { IAuthLoginRes } from '@/api/types/login'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue' // 修复：导入 computed
 import {
+  exchangeOauthTicket as _exchangeOauthTicket,
   login as _login,
   logout as _logout,
   refreshToken as _refreshToken,
@@ -109,6 +110,12 @@ export const useTokenStore = defineStore(
       await userStore.fetchUserInfo()
     }
 
+    const completeLogin = async (loginRes: IAuthLoginRes) => {
+      await _postLogin(loginRes)
+      updateNowTime()
+      return loginRes
+    }
+
     /**
      * 用户登录
      * 有的时候后端会用一个接口返回token和用户信息，有的时候会分开2个接口，一个获取token，一个获取用户信息
@@ -149,9 +156,9 @@ export const useTokenStore = defineStore(
     const wxLogin = async () => {
       try {
         // 获取微信小程序登录的code
-        const code = await getWxCode()
-        console.log('微信登录-code: ', code)
-        const res = await _wxLogin(code)
+        const loginRes = await getWxCode()
+        console.log('微信登录-code: ', loginRes)
+        const res = await _wxLogin({ code: loginRes.code })
         console.log('微信登录-res: ', res)
         await _postLogin(res)
         uni.showToast({
@@ -164,6 +171,29 @@ export const useTokenStore = defineStore(
         console.error('微信登录失败:', error)
         uni.showToast({
           title: '微信登录失败，请重试',
+          icon: 'error',
+        })
+        throw error
+      }
+      finally {
+        updateNowTime()
+      }
+    }
+
+    const loginWithOauthTicket = async (ticket: string) => {
+      try {
+        const res = await _exchangeOauthTicket({ ticket })
+        await _postLogin(res)
+        uni.showToast({
+          title: '登录成功',
+          icon: 'success',
+        })
+        return res
+      }
+      catch (error) {
+        console.error('第三方登录失败:', error)
+        uni.showToast({
+          title: '第三方登录失败，请重试',
           icon: 'error',
         })
         throw error
@@ -297,6 +327,8 @@ export const useTokenStore = defineStore(
       // 核心API方法
       login,
       wxLogin,
+      completeLogin,
+      loginWithOauthTicket,
       logout,
 
       // 认证状态判断（最常用的）

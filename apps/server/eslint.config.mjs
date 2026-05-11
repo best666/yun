@@ -32,6 +32,7 @@ export default [
     rules: {
       'no-undef': 'off',
       'no-console': 'off',
+      'no-unused-vars': 'off',
       'semi': ['error', 'always'],
       'quotes': ['error', 'single'],
       '@typescript-eslint/no-explicit-any': 'off',

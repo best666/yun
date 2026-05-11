@@ -1,5 +1,6 @@
 // 认证模式类型
 export type AuthMode = 'single' | 'double'
+export type LoginProvider = 'wechat' | 'douyin'
 
 // 单Token响应类型
 export interface ISingleTokenRes {
@@ -30,6 +31,8 @@ export interface IUserInfoRes {
   username: string
   nickname: string
   avatar?: string
+  phone?: string
+  gender?: number
   /** 同时支持单角色和多角色，你自行选择一种就行 */
   role?: UserRole
   roles?: UserRole[]
@@ -52,6 +55,12 @@ export interface ICaptcha {
   uuid: string
   image: string
 }
+
+export interface ISendSmsCodeRes {
+  sent: boolean
+  expiresIn: number
+  debugCode?: string
+}
 /**
  * 上传成功的信息
  */
@@ -69,9 +78,9 @@ export interface IUploadSuccessInfo {
  * 更新用户信息
  */
 export interface IUpdateInfo {
-  id: number
-  name: string
-  sex: string
+  nickname?: string
+  avatar?: string
+  gender?: number
 }
 /**
  * 更新用户信息

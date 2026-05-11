@@ -35,3 +35,6 @@ coverage/
 # Prisma
 prisma/*.db
 prisma/*.db-journal
+
+# Project-local MySQL data for apps/server
+apps/server/.local/

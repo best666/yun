@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import type { SpotDetail } from '@/store/spot'
-import { useFavoriteStore, useFootprintStore, useSpotStore, useUserContentStore } from '@/store'
+import { useFavoriteStore, useFootprintStore, useSpotStore, useTokenStore, useUserContentStore, useUserStore } from '@/store'
+import { toLoginPage } from '@/utils/toLoginPage'
 
 definePage({
   style: {
@@ -17,11 +18,35 @@ const favoriteStore = useFavoriteStore()
 const spotStore = useSpotStore()
 const footprintStore = useFootprintStore()
 const userContentStore = useUserContentStore()
+const tokenStore = useTokenStore()
+const authUserStore = useUserStore()
 
-const userInfo = reactive({
+const guestUserInfo = reactive({
   nickname: '美食探索者',
   avatar: 'https://placehold.co/120/ff6633/white?text=Me',
   desc: '吃遍天下美食',
+})
+
+const hasLogin = computed(() => tokenStore.updateNowTime().hasLogin)
+const displayUserInfo = computed(() => {
+  if (!hasLogin.value) {
+    return guestUserInfo
+  }
+
+  const phone = authUserStore.userInfo.phone
+  const desc = phone ? `已绑定手机号 ${phone.slice(0, 3)}****${phone.slice(-4)}` : '登录后可同步收藏与足迹'
+
+  return {
+    nickname: authUserStore.userInfo.nickname || authUserStore.userInfo.username || guestUserInfo.nickname,
+    avatar: authUserStore.userInfo.avatar || guestUserInfo.avatar,
+    desc,
+  }
+})
+
+onShow(async () => {
+  if (hasLogin.value && authUserStore.userInfo.userId < 0) {
+    await authUserStore.fetchUserInfo()
+  }
 })
 
 /** 是否显示编辑弹窗 */
@@ -32,8 +57,13 @@ const editForm = reactive({
 })
 
 function openEditProfile() {
-  editForm.nickname = userInfo.nickname
-  editForm.desc = userInfo.desc
+  if (!hasLogin.value) {
+    toLoginPage()
+    return
+  }
+
+  editForm.nickname = displayUserInfo.value.nickname
+  editForm.desc = displayUserInfo.value.desc
   showEditProfile.value = true
 }
 
@@ -42,10 +72,21 @@ function saveProfile() {
     uni.showToast({ title: '昵称不能为空', icon: 'none' })
     return
   }
-  userInfo.nickname = editForm.nickname.trim()
-  userInfo.desc = editForm.desc.trim()
+  authUserStore.setUserInfo({
+    ...authUserStore.userInfo,
+    nickname: editForm.nickname.trim(),
+  })
   showEditProfile.value = false
   uni.showToast({ title: '修改成功', icon: 'success' })
+}
+
+async function handleLoginOrProfile() {
+  if (!hasLogin.value) {
+    toLoginPage()
+    return
+  }
+
+  openEditProfile()
 }
 
 /** 收藏的地点列表 */
@@ -87,6 +128,9 @@ const menuList: MenuItem[] = [
 
 /** 当前展开的菜单 */
 const expandedAction = ref('')
+
+/** 设置面板 */
+const showSettings = ref(false)
 
 function onMenuTap(item: MenuItem) {
   if (item.action === 'favorites' || item.action === 'footprint' || item.action === 'reviews' || item.action === 'notes') {
@@ -143,9 +187,6 @@ function renderStars(rating: number): string {
   return '★'.repeat(Math.floor(rating)) + (rating % 1 >= 0.5 ? '☆' : '')
 }
 
-/** 设置面板 */
-const showSettings = ref(false)
-
 function clearCache() {
   uni.showModal({
     title: '提示',
@@ -180,6 +221,12 @@ function clearFootprints() {
 function showAbout() {
   uni.navigateTo({ url: '/pages/about/about' })
 }
+
+async function handleLogout() {
+  await tokenStore.logout()
+  showSettings.value = false
+  uni.showToast({ title: '已退出登录', icon: 'success' })
+}
 </script>
 
 <template>
@@ -188,17 +235,20 @@ function showAbout() {
     <view class="header">
       <view class="header-bg" />
       <view class="user-section">
-        <image :src="userInfo.avatar" class="avatar" mode="aspectFill" />
-        <view class="user-info" @click="openEditProfile">
+        <image :src="displayUserInfo.avatar" class="avatar" mode="aspectFill" />
+        <view class="user-info" @click="handleLoginOrProfile">
           <view class="flex items-center gap-2">
             <view class="text-18px text-white font-bold">
-              {{ userInfo.nickname }}
+              {{ displayUserInfo.nickname }}
             </view>
             <view class="i-carbon-edit text-14px text-white text-opacity-70" />
           </view>
           <view class="mt-1 text-13px text-white text-opacity-80">
-            {{ userInfo.desc }}
+            {{ displayUserInfo.desc }}
           </view>
+        </view>
+        <view v-if="!hasLogin" class="login-pill" @click="toLoginPage()">
+          去登录
         </view>
       </view>
 
@@ -217,8 +267,13 @@ function showAbout() {
 
     <!-- 菜单列表 -->
     <view class="menu-card">
-      <view v-for="(item, index) in menuList" :key="item.label" class="menu-item"
-        :class="{ 'menu-item--last': index === menuList.length - 1 }" @click="onMenuTap(item)">
+      <view
+        v-for="(item, index) in menuList"
+        :key="item.label"
+        class="menu-item"
+        :class="{ 'menu-item--last': index === menuList.length - 1 }"
+        @click="onMenuTap(item)"
+      >
         <view class="flex items-center gap-3">
           <view :class="item.icon" class="text-20px text-orange-500" />
           <text class="text-15px text-gray-700">{{ item.label }}</text>
@@ -226,8 +281,10 @@ function showAbout() {
             ({{ item.count() }})
           </text>
         </view>
-        <view class="text-16px text-gray-300"
-          :class="expandedAction === item.action ? 'i-carbon-chevron-down' : 'i-carbon-chevron-right'" />
+        <view
+          class="text-16px text-gray-300"
+          :class="expandedAction === item.action ? 'i-carbon-chevron-down' : 'i-carbon-chevron-right'"
+        />
       </view>
     </view>
 
@@ -312,7 +369,7 @@ function showAbout() {
             <view class="truncate text-14px text-gray-800 font-medium">
               {{ note.title }}
             </view>
-            <view class="mt-1 text-12px text-gray-500 line-clamp-2">
+            <view class="line-clamp-2 mt-1 text-12px text-gray-500">
               {{ note.content }}
             </view>
             <view class="mt-1 flex items-center justify-between">
@@ -391,6 +448,13 @@ function showAbout() {
           </view>
           <view class="i-carbon-chevron-right text-16px text-gray-300" />
         </view>
+        <view v-if="hasLogin" class="settings-item settings-item--danger" @click="handleLogout">
+          <view class="flex items-center gap-3">
+            <view class="i-carbon-logout text-18px text-red-400" />
+            <text class="text-15px text-red-400">退出登录</text>
+          </view>
+          <view class="i-carbon-chevron-right text-16px text-red-200" />
+        </view>
       </view>
     </view>
   </view>
@@ -435,6 +499,15 @@ function showAbout() {
   flex: 1;
 }
 
+.login-pill {
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-size: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
 .stats-row {
   display: flex;
   margin: 16px 12px 0;
@@ -473,6 +546,10 @@ function showAbout() {
   &:active {
     opacity: 0.7;
   }
+}
+
+.settings-item--danger {
+  border-top: 1px solid #fff1f1;
 }
 
 .expand-card {

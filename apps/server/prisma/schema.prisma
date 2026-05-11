@@ -11,20 +11,42 @@ datasource db {
 
 /// 用户表
 model User {
-  id        Int      @id @default(autoincrement())
-  openid    String   @unique @db.VarChar(64) /// 微信openid
-  nickname  String?  @db.VarChar(50)
-  avatar    String?  @db.VarChar(500)
-  phone     String?  @db.VarChar(20)
-  gender    Int      @default(0) /// 0未知 1男 2女
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id            Int      @id @default(autoincrement())
+  username      String?  @unique @db.VarChar(50)
+  openid        String?  @unique @db.VarChar(64) /// 微信小程序openid
+  wechatOpenId  String?  @unique @map("wechat_open_id") @db.VarChar(64)
+  douyinOpenId  String?  @unique @map("douyin_open_id") @db.VarChar(64)
+  unionId       String?  @map("union_id") @db.VarChar(64)
+  nickname      String?  @db.VarChar(50)
+  avatar        String?  @db.VarChar(500)
+  phone         String?  @unique @db.VarChar(20)
+  gender        Int      @default(0) /// 0未知 1男 2女
+  lastLoginAt   DateTime? @map("last_login_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
-  favorites  Favorite[]
-  reviews    Review[]
+  favorites   Favorite[]
+  reviews     Review[]
   collections Collection[]
+  smsCodes     SmsCode[]
 
   @@map("users")
+}
+
+model SmsCode {
+  id        Int       @id @default(autoincrement())
+  userId    Int?      @map("user_id")
+  phone     String    @db.VarChar(20)
+  code      String    @db.VarChar(10)
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([phone, createdAt])
+  @@index([expiresAt])
+  @@map("sms_codes")
 }
 
 // ==================== 美食模块 ====================
