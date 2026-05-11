@@ -4,6 +4,7 @@
   "private": true,
   "description": "美食小程序 monorepo 项目",
   "scripts": {
+    "preinstall": "npx only-allow pnpm",
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .husky || true",
     "dev:app": "pnpm --filter @yun/app dev",
     "dev:server": "pnpm --filter @yun/server dev",
@@ -20,9 +21,19 @@
   },
   "engines": {
     "node": ">=18.0.0",
-    "pnpm": ">=8.0.0"
+    "pnpm": ">=9.0.0"
+  },
+  "overrides": {
+    "unconfig": "7.3.2"
+  },
+  "resolutions": {
+    "bin-wrapper": "npm:bin-wrapper-china",
+    "unconfig": "7.3.2"
   },
   "pnpm": {
+    "overrides": {
+      "unconfig": "7.3.2"
+    },
     "onlyBuiltDependencies": [
       "prisma",
       "@prisma/client",
