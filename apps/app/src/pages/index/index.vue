@@ -2,6 +2,11 @@
 import type { FoodSpot } from '@/store/spot'
 import { useFavoriteStore, useSpotStore } from '@/store'
 
+interface CoordinatePoint {
+  latitude: number
+  longitude: number
+}
+
 defineOptions({
   name: 'Home',
 })
@@ -22,10 +27,32 @@ definePage({
 const spotStore = useSpotStore()
 const favoriteStore = useFavoriteStore()
 
+const DEFAULT_KUNMING_CENTER: CoordinatePoint = {
+  latitude: 25.03889,
+  longitude: 102.71833,
+}
+
+const YUNNAN_BOUNDARY: CoordinatePoint[] = [
+  { latitude: 28.48, longitude: 98.67 },
+  { latitude: 28.08, longitude: 98.05 },
+  { latitude: 27.38, longitude: 97.55 },
+  { latitude: 26.2, longitude: 98.72 },
+  { latitude: 24.7, longitude: 97.53 },
+  { latitude: 23.1, longitude: 98.92 },
+  { latitude: 21.14, longitude: 101.56 },
+  { latitude: 21.17, longitude: 103.4 },
+  { latitude: 22.82, longitude: 104.98 },
+  { latitude: 24.2, longitude: 105.89 },
+  { latitude: 25.96, longitude: 104.67 },
+  { latitude: 27.3, longitude: 104.48 },
+  { latitude: 28.15, longitude: 102.92 },
+  { latitude: 29.25, longitude: 100.12 },
+]
+
 /** 地图中心 */
 const mapCenter = reactive({
-  latitude: 39.908823,
-  longitude: 116.397470,
+  latitude: DEFAULT_KUNMING_CENTER.latitude,
+  longitude: DEFAULT_KUNMING_CENTER.longitude,
 })
 
 /** 当前选中地点 */
@@ -37,6 +64,61 @@ const showBottomCard = ref(false)
 const searchKeyword = ref('')
 const showSearchPanel = ref(false)
 const searchResults = ref<FoodSpot[]>([])
+
+function setMapCenter(point: CoordinatePoint) {
+  mapCenter.latitude = point.latitude
+  mapCenter.longitude = point.longitude
+}
+
+function isPointInPolygon(point: CoordinatePoint, polygon: CoordinatePoint[]) {
+  let isInside = false
+
+  for (let index = 0, previousIndex = polygon.length - 1; index < polygon.length; previousIndex = index++) {
+    const current = polygon[index]
+    const previous = polygon[previousIndex]
+    const latitudeDelta = previous.latitude - current.latitude
+    const intersectionLongitude = ((previous.longitude - current.longitude) * (point.latitude - current.latitude)) / latitudeDelta + current.longitude
+
+    const isIntersected
+      = ((current.latitude > point.latitude) !== (previous.latitude > point.latitude))
+        && point.longitude < intersectionLongitude
+
+    if (isIntersected)
+      isInside = !isInside
+  }
+
+  return isInside
+}
+
+function isInYunnan(point: CoordinatePoint) {
+  return isPointInPolygon(point, YUNNAN_BOUNDARY)
+}
+
+function locateOnPageOpen() {
+  uni.getLocation({
+    type: 'gcj02',
+    success(res) {
+      const currentLocation = {
+        latitude: res.latitude,
+        longitude: res.longitude,
+      }
+
+      if (isInYunnan(currentLocation)) {
+        setMapCenter(currentLocation)
+        return
+      }
+
+      setMapCenter(DEFAULT_KUNMING_CENTER)
+    },
+    fail() {
+      setMapCenter(DEFAULT_KUNMING_CENTER)
+    },
+  })
+}
+
+onLoad(() => {
+  locateOnPageOpen()
+})
 
 function onSearchInput(e: any) {
   searchKeyword.value = e.detail?.value ?? e.target?.value ?? ''
@@ -59,8 +141,7 @@ function onSearchResultTap(spot: FoodSpot) {
   searchKeyword.value = ''
   searchResults.value = []
   // 移动地图中心到该地点并展示卡片
-  mapCenter.latitude = spot.latitude
-  mapCenter.longitude = spot.longitude
+  setMapCenter(spot)
   selectedSpot.value = spot
   showBottomCard.value = true
 }
@@ -90,9 +171,10 @@ const markers = computed(() =>
         content: `${spot.name}\n★${spot.rating} | ¥${spot.avgPrice}/人${isFav ? ' ❤' : ''}`,
         color: '#333333',
         fontSize: 12,
+        textAlign: 'center' as const,
         borderRadius: 10,
         padding: 8,
-        display: 'BYCLICK',
+        display: 'BYCLICK' as const,
         bgColor: '#ffffff',
         borderWidth: 1,
         borderColor: '#ff6633',
@@ -117,8 +199,7 @@ function onMarkerTap(e: any) {
   selectedSpot.value = spot
   showBottomCard.value = true
   // 移动地图中心到选中地点
-  mapCenter.latitude = spot.latitude
-  mapCenter.longitude = spot.longitude
+  setMapCenter(spot)
 }
 
 /** 点击 callout 也跳转详情 */
@@ -158,8 +239,10 @@ function relocate() {
   uni.getLocation({
     type: 'gcj02',
     success(res) {
-      mapCenter.latitude = res.latitude
-      mapCenter.longitude = res.longitude
+      setMapCenter({
+        latitude: res.latitude,
+        longitude: res.longitude,
+      })
     },
     fail() {
       uni.showToast({ title: '定位失败', icon: 'none' })
