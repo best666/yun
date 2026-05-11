@@ -27,6 +27,7 @@ export interface ReviewItem {
   content: string
   images: string[]
   time: string
+  likeCount?: number
 }
 
 /** 问答 */

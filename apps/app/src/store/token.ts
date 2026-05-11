@@ -224,6 +224,7 @@ export const useTokenStore = defineStore(
         console.log('退出登录-清除用户信息')
         tokenInfo.value = { ...tokenInfoState }
         uni.removeStorageSync('token')
+        uni.removeStorageSync('favorite')
         const userStore = useUserStore()
         userStore.clearUserInfo()
       }

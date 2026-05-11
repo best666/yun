@@ -4,7 +4,10 @@ import type { ISearchUserItem } from '@/api/types/search'
 import type { FoodSpot } from '@/store/spot'
 import { searchUsers } from '@/api/login'
 import { searchMapPlaces } from '@/api/map'
+import { getSpotDetail } from '@/api/spot'
 import { useFavoriteStore, useSpotStore } from '@/store'
+import { openNavigationWithPreference } from '@/utils/mapNavigation'
+import { buildSpotDetailUrlFromMapPlace, buildSpotDetailUrlFromSpot, createFavoriteSummaryFromSpot } from '@/utils/spotDetail'
 
 interface CoordinatePoint {
   latitude: number
@@ -161,6 +164,11 @@ function locateOnPageOpen() {
 
 onLoad(() => {
   locateOnPageOpen()
+  void favoriteStore.ensureServerFavoritesLoaded()
+})
+
+onShow(() => {
+  void favoriteStore.ensureServerFavoritesLoaded()
 })
 
 onUnload(() => {
@@ -437,7 +445,13 @@ function onMapTap() {
 /** 跳转详情页 */
 function goDetail(spot: FoodSpot) {
   uni.navigateTo({
-    url: `/pages/spot/detail?id=${spot.id}`,
+    url: buildSpotDetailUrlFromSpot(spot),
+  })
+}
+
+function goMapPlaceDetail(place: IMapSearchPlaceItem) {
+  uni.navigateTo({
+    url: buildSpotDetailUrlFromMapPlace(place, currentMapProvider),
   })
 }
 
@@ -454,13 +468,84 @@ function openMapPlaceLocation() {
   })
 }
 
+async function openSelectedSpotNavigation() {
+  if (!selectedSpot.value) {
+    return
+  }
+
+  await openNavigationWithPreference({
+    latitude: selectedSpot.value.latitude,
+    longitude: selectedSpot.value.longitude,
+    name: selectedSpot.value.name,
+    address: selectedSpot.value.address,
+  }, 'ask')
+}
+
+async function toggleSelectedMapPlaceFavorite() {
+  if (!selectedMapPlace.value) {
+    return
+  }
+
+  try {
+    const detail = await getSpotDetail({
+      id: selectedMapPlace.value.id,
+      title: selectedMapPlace.value.title,
+      address: selectedMapPlace.value.address,
+      latitude: selectedMapPlace.value.latitude,
+      longitude: selectedMapPlace.value.longitude,
+      distance: selectedMapPlace.value.distance,
+      category: selectedMapPlace.value.category,
+      district: selectedMapPlace.value.district,
+      provider: currentMapProvider,
+    })
+
+    selectedMapPlace.value = {
+      ...selectedMapPlace.value,
+      id: detail.id,
+    }
+
+    const result = await favoriteStore.toggleFavorite({
+      id: detail.id,
+      name: detail.name,
+      cover: detail.cover,
+      address: detail.address,
+      rating: detail.rating,
+      avgPrice: detail.avgPrice,
+      latitude: detail.latitude,
+      longitude: detail.longitude,
+      distance: selectedMapPlace.value.distance,
+      category: selectedMapPlace.value.category,
+      district: selectedMapPlace.value.district,
+      provider: currentMapProvider,
+    })
+
+    uni.showToast({
+      title: result.favorited ? '已收藏' : '已取消收藏',
+      icon: 'none',
+    })
+  }
+  catch (error) {
+    console.error('收藏地图地点失败', error)
+  }
+}
+
 /** 卡片内收藏切换 */
-function onCardFavorite(spotId: number) {
-  const result = favoriteStore.toggleFavorite(spotId)
-  uni.showToast({
-    title: result ? '已收藏' : '已取消收藏',
-    icon: 'none',
-  })
+async function onCardFavorite(spotId: number) {
+  const spot = displaySpots.value.find(item => item.id === spotId)
+  if (!spot) {
+    return
+  }
+
+  try {
+    const result = await favoriteStore.toggleFavorite(createFavoriteSummaryFromSpot(spot))
+    uni.showToast({
+      title: result.favorited ? '已收藏' : '已取消收藏',
+      icon: 'none',
+    })
+  }
+  catch (error) {
+    console.error('切换收藏失败', error)
+  }
 }
 
 /** 重定位到当前位置 */
@@ -642,7 +727,7 @@ function relocate() {
             <view class="i-carbon-view text-18px text-orange-500" />
             <text class="text-11px text-orange-500">查看详情</text>
           </view>
-          <view class="card-action-btn" @click.stop="goDetail(selectedSpot)">
+          <view class="card-action-btn" @click.stop="openSelectedSpotNavigation">
             <view class="i-carbon-navigation text-18px text-blue-500" />
             <text class="text-11px text-blue-500">导航</text>
           </view>
@@ -671,13 +756,25 @@ function relocate() {
         </view>
 
         <view class="card-actions">
+          <view class="card-action-btn" @click.stop="toggleSelectedMapPlaceFavorite">
+            <view
+              :class="favoriteStore.isFavorited(selectedMapPlace.id) ? 'i-carbon-favorite-filled text-red-500' : 'i-carbon-favorite text-gray-400'"
+              class="text-18px"
+            />
+            <text
+              class="text-11px"
+              :class="favoriteStore.isFavorited(selectedMapPlace.id) ? 'text-red-500' : 'text-gray-400'"
+            >
+              {{ favoriteStore.isFavorited(selectedMapPlace.id) ? '已收藏' : '收藏' }}
+            </text>
+          </view>
+          <view class="card-action-btn" @click.stop="goMapPlaceDetail(selectedMapPlace)">
+            <view class="i-carbon-view text-18px text-orange-500" />
+            <text class="text-11px text-orange-500">查看详情</text>
+          </view>
           <view class="card-action-btn" @click.stop="openMapPlaceLocation">
             <view class="i-carbon-navigation text-18px text-blue-500" />
-            <text class="text-11px text-blue-500">打开位置</text>
-          </view>
-          <view class="card-action-btn" @click.stop="closeSearch">
-            <view class="i-carbon-close text-18px text-gray-500" />
-            <text class="text-11px text-gray-500">关闭搜索</text>
+            <text class="text-11px text-blue-500">路线导航</text>
           </view>
         </view>
       </view>
