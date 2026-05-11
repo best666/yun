@@ -1,4 +1,5 @@
 import type { IAuthLoginRes, IDoubleTokenRes, ISendSmsCodeRes, IUpdateInfo, IUpdatePassword, IUserInfoRes } from './types/login'
+import type { ISearchUserItem } from './types/search'
 import { http } from '@/http/http'
 
 /**
@@ -34,6 +35,10 @@ export function refreshToken(refreshToken: string) {
  */
 export function getUserInfo() {
   return http.get<IUserInfoRes>('/api/user/info')
+}
+
+export function searchUsers(keyword: string) {
+  return http.get<ISearchUserItem[]>('/api/user/search', { keyword })
 }
 
 /**

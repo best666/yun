@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ok } from '@/common/api-response';
 import { CurrentUser, type CurrentAuthUser } from '@/auth/current-user.decorator';
 import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
@@ -8,6 +8,12 @@ import { UserService } from './user.service';
 @Controller('user')
 export class UserController {
   constructor(private readonly userService: UserService) {}
+
+  @Get('search')
+  async searchUsers(@Query('keyword') keyword = '') {
+    const users = await this.userService.searchUsers(keyword);
+    return ok(users);
+  }
 
   @UseGuards(JwtAuthGuard)
   @Get('info')

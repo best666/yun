@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import type { SpotDetail } from '@/store/spot'
-import { useFavoriteStore, useFootprintStore, useSpotStore, useUserContentStore } from '@/store'
+import { useFavoriteStore, useFootprintStore, useMapSettingStore, useSpotStore, useUserContentStore } from '@/store'
+import { openNavigationWithPreference } from '@/utils/mapNavigation'
 
 definePage({
   style: {
@@ -12,6 +13,7 @@ const spotStore = useSpotStore()
 const favoriteStore = useFavoriteStore()
 const footprintStore = useFootprintStore()
 const userContentStore = useUserContentStore()
+const mapSettingStore = useMapSettingStore()
 
 const spotId = ref(0)
 
@@ -74,15 +76,15 @@ function callPhone() {
 }
 
 /** 导航 */
-function openNavigation() {
+async function openNavigation() {
   if (!spotDetail.value)
     return
-  uni.openLocation({
+  await openNavigationWithPreference({
     latitude: spotDetail.value.latitude,
     longitude: spotDetail.value.longitude,
     name: spotDetail.value.name,
     address: spotDetail.value.address,
-  })
+  }, mapSettingStore.navigationMapApp)
 }
 
 /** 渲染星星 */
@@ -299,8 +301,10 @@ watch(showAnswerModal, (v) => {
 
     <template v-else>
       <!-- 顶部图片轮播 -->
-      <swiper class="banner" indicator-dots indicator-color="rgba(255,255,255,0.4)" indicator-active-color="#fff"
-        autoplay circular>
+      <swiper
+        class="banner" indicator-dots indicator-color="rgba(255,255,255,0.4)" indicator-active-color="#fff"
+        autoplay circular
+      >
         <swiper-item v-for="(img, idx) in spotDetail.images" :key="idx">
           <image :src="img" class="banner-img" mode="aspectFill" />
         </swiper-item>
@@ -321,8 +325,10 @@ watch(showAnswerModal, (v) => {
           </view>
           <view class="flex flex-shrink-0 items-center gap-3">
             <view class="action-btn" @click="toggleFavorite">
-              <view :class="isFavorited ? 'i-carbon-favorite-filled text-red-500' : 'i-carbon-favorite text-gray-400'"
-                class="text-22px" />
+              <view
+                :class="isFavorited ? 'i-carbon-favorite-filled text-red-500' : 'i-carbon-favorite text-gray-400'"
+                class="text-22px"
+              />
             </view>
             <view class="action-btn" @click="onShare">
               <view class="i-carbon-share text-22px text-blue-500" />
@@ -335,8 +341,10 @@ watch(showAnswerModal, (v) => {
 
         <!-- 标签 -->
         <view class="mt-3 flex flex-wrap gap-2">
-          <view v-for="tag in spotDetail.tags" :key="tag"
-            class="rounded-full bg-orange-50 px-3 py-1 text-12px text-orange-500">
+          <view
+            v-for="tag in spotDetail.tags" :key="tag"
+            class="rounded-full bg-orange-50 px-3 py-1 text-12px text-orange-500"
+          >
             {{ tag }}
           </view>
         </view>
@@ -364,8 +372,10 @@ watch(showAnswerModal, (v) => {
       <!-- Tab 切换 -->
       <view class="tab-bar-section">
         <view class="tab-bar-inner">
-          <view v-for="(tab, index) in tabs" :key="tab" class="tab-item"
-            :class="{ 'tab-item--active': currentTab === index }" @click="switchTab(index)">
+          <view
+            v-for="(tab, index) in tabs" :key="tab" class="tab-item"
+            :class="{ 'tab-item--active': currentTab === index }" @click="switchTab(index)"
+          >
             <text>{{ tab }}{{ tabCounts[index] > 0 ? ` ${tabCounts[index]}` : '' }}</text>
             <view v-if="currentTab === index" class="tab-indicator" />
           </view>
@@ -397,8 +407,10 @@ watch(showAnswerModal, (v) => {
               {{ review.content }}
             </view>
             <view v-if="review.images.length" class="mt-2 flex gap-2">
-              <image v-for="(img, idx) in review.images" :key="idx" :src="img" class="h-80px w-80px rounded-8px"
-                mode="aspectFill" />
+              <image
+                v-for="(img, idx) in review.images" :key="idx" :src="img" class="h-80px w-80px rounded-8px"
+                mode="aspectFill"
+              />
             </view>
           </view>
           <view v-if="reviews.length === 0" class="empty-tip">
@@ -489,8 +501,10 @@ watch(showAnswerModal, (v) => {
     </template>
 
     <!-- 底部浮层遮罩 -->
-    <view v-if="activeSheet" class="sheet-overlay" :class="{ 'sheet-overlay--show': sheetVisible }"
-      @click="closeSheet" />
+    <view
+      v-if="activeSheet" class="sheet-overlay" :class="{ 'sheet-overlay--show': sheetVisible }"
+      @click="closeSheet"
+    />
 
     <!-- 写评价浮层 -->
     <view v-if="activeSheet === 'review'" class="sheet" :class="{ 'sheet--show': sheetVisible }">
@@ -506,8 +520,10 @@ watch(showAnswerModal, (v) => {
       <view class="sheet-body">
         <view class="flex items-center gap-1">
           <text class="mr-2 text-14px text-gray-600">评分</text>
-          <view v-for="star in 5" :key="star" class="text-24px"
-            :class="star <= reviewForm.rating ? 'text-orange-400' : 'text-gray-300'" @click="setReviewRating(star)">
+          <view
+            v-for="star in 5" :key="star" class="text-24px"
+            :class="star <= reviewForm.rating ? 'text-orange-400' : 'text-gray-300'" @click="setReviewRating(star)"
+          >
             ★
           </view>
         </view>

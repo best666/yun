@@ -22,15 +22,30 @@ const {
   VITE_WX_APPID,
   VITE_APP_PUBLIC_BASE,
   VITE_FALLBACK_LOCALE,
+  VITE_AMAP_JS_KEY_H5,
+  VITE_AMAP_KEY_H5,
+  VITE_AMAP_KEY,
   VITE_TENCENT_MAP_KEY_H5,
   VITE_TENCENT_MAP_KEY_MP_WEIXIN,
   VITE_TENCENT_MAP_KEY,
 } = env
 // console.log('manifest.config.ts env:', env)
 
+const h5AmapJsKey = VITE_AMAP_JS_KEY_H5 || ''
 const h5TencentMapKey = VITE_TENCENT_MAP_KEY_H5 || VITE_TENCENT_MAP_KEY || ''
-const mpWeixinTencentMapKey
-  = VITE_TENCENT_MAP_KEY_MP_WEIXIN || VITE_TENCENT_MAP_KEY || ''
+const mpWeixinTencentMapKey = VITE_TENCENT_MAP_KEY_MP_WEIXIN || VITE_TENCENT_MAP_KEY || ''
+
+const h5MapSdkConfig = h5AmapJsKey
+  ? {
+      amap: {
+        key: h5AmapJsKey,
+      },
+    }
+  : {
+      qqmap: {
+        key: h5TencentMapKey,
+      },
+    }
 
 export default defineManifestConfig({
   'name': VITE_APP_TITLE,
@@ -45,11 +60,7 @@ export default defineManifestConfig({
       base: VITE_APP_PUBLIC_BASE,
     },
     sdkConfigs: {
-      maps: {
-        qqmap: {
-          key: h5TencentMapKey,
-        },
-      },
+      maps: h5MapSdkConfig,
     },
   },
   /* 5+App特有相关 */
@@ -158,10 +169,9 @@ export default defineManifestConfig({
       },
     },
     requiredPrivateInfos: ['getLocation', 'chooseLocation', 'chooseAddress'],
-    // 使用腾讯地图
+    // 微信小程序原生 map 组件底图固定为腾讯位置服务
     plugins: {},
-    // 腾讯位置服务地图选点
-    // 注意：qqmap key 需在腾讯位置服务控制台配置小程序appid白名单
+    // 当前页面使用的是微信原生 map，因此仍需保留腾讯 key 做底图鉴权
     // 是否合并组件虚拟节点外层属性，uni-app 3.5.1+ 开始支持。目前仅支持 style、class 属性。
     // 默认不开启（undefined），这里设置为开启。
     maps: {

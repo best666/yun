@@ -1,5 +1,9 @@
 <script lang="ts" setup>
+import type { IMapSearchPlaceItem, MapApiProvider } from '@/api/types/map'
+import type { ISearchUserItem } from '@/api/types/search'
 import type { FoodSpot } from '@/store/spot'
+import { searchUsers } from '@/api/login'
+import { searchMapPlaces } from '@/api/map'
 import { useFavoriteStore, useSpotStore } from '@/store'
 
 interface CoordinatePoint {
@@ -26,6 +30,9 @@ definePage({
 
 const spotStore = useSpotStore()
 const favoriteStore = useFavoriteStore()
+
+const currentMapProvider = getCurrentMapProvider()
+const currentMapProviderLabel = currentMapProvider === 'amap' ? '高德地图' : '腾讯地图'
 
 const DEFAULT_KUNMING_CENTER: CoordinatePoint = {
   latitude: 25.03889,
@@ -55,15 +62,51 @@ const mapCenter = reactive({
   longitude: DEFAULT_KUNMING_CENTER.longitude,
 })
 
+const SEARCH_PLACE_MARKER_BASE_ID = 900000
+
 /** 当前选中地点 */
 const selectedSpot = ref<FoodSpot | null>(null)
+const selectedMapPlace = ref<IMapSearchPlaceItem | null>(null)
 /** 底部卡片是否显示 */
 const showBottomCard = ref(false)
 
 /** 搜索相关 */
 const searchKeyword = ref('')
 const showSearchPanel = ref(false)
-const searchResults = ref<FoodSpot[]>([])
+const searchSpotResults = ref<IMapSearchPlaceItem[]>([])
+const searchUserResults = ref<ISearchUserItem[]>([])
+const isSearchingPlaces = ref(false)
+const isSearchingUsers = ref(false)
+
+const SEARCH_DEBOUNCE_MS = 300
+
+let searchRequestId = 0
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+function mapSpotToSearchPlace(spot: FoodSpot): IMapSearchPlaceItem {
+  return {
+    id: `local-${spot.id}`,
+    title: spot.name,
+    address: spot.address,
+    category: spot.tags.join(' / '),
+    district: '',
+    latitude: spot.latitude,
+    longitude: spot.longitude,
+  }
+}
+
+function getSearchPlaceMarkerId(index: number) {
+  return SEARCH_PLACE_MARKER_BASE_ID + index
+}
+
+function findSearchPlaceByMarkerId(markerId: number) {
+  const markerIndex = markerId - SEARCH_PLACE_MARKER_BASE_ID
+  if (markerIndex < 0 || markerIndex >= searchSpotResults.value.length) {
+    return null
+  }
+
+  return searchSpotResults.value[markerIndex] || null
+}
 
 function setMapCenter(point: CoordinatePoint) {
   mapCenter.latitude = point.latitude
@@ -120,44 +163,168 @@ onLoad(() => {
   locateOnPageOpen()
 })
 
+onUnload(() => {
+  clearPendingSearch()
+})
+
+function getCurrentMapProvider(): MapApiProvider {
+  // #ifdef H5
+  return 'amap'
+  // #endif
+
+  // #ifdef MP-WEIXIN
+  return 'tencent'
+  // #endif
+
+  return 'tencent'
+}
+
+async function performSearch(keyword: string) {
+  const trimmedKeyword = keyword.trim()
+
+  if (!trimmedKeyword) {
+    searchSpotResults.value = []
+    searchUserResults.value = []
+    isSearchingPlaces.value = false
+    isSearchingUsers.value = false
+    searchRequestId += 1
+    return
+  }
+
+  const currentRequestId = ++searchRequestId
+  isSearchingPlaces.value = true
+  isSearchingUsers.value = true
+
+  try {
+    const [placeResult, userResult] = await Promise.allSettled([
+      searchMapPlaces({
+        keyword: trimmedKeyword,
+        latitude: mapCenter.latitude,
+        longitude: mapCenter.longitude,
+        pageSize: 10,
+        provider: currentMapProvider,
+      }),
+      searchUsers(trimmedKeyword),
+    ])
+
+    if (currentRequestId !== searchRequestId)
+      return
+
+    if (placeResult.status === 'fulfilled') {
+      searchSpotResults.value = placeResult.value
+    }
+    else {
+      searchSpotResults.value = spotStore.searchSpots(trimmedKeyword).map(mapSpotToSearchPlace)
+      uni.showToast({
+        title: `${currentMapProviderLabel}搜索暂不可用，已切换本地地点结果`,
+        icon: 'none',
+      })
+      console.error(`${currentMapProviderLabel}地点搜索失败`, placeResult.reason)
+    }
+
+    if (userResult.status === 'fulfilled') {
+      searchUserResults.value = userResult.value
+    }
+    else {
+      searchUserResults.value = []
+      console.error('搜索用户失败', userResult.reason)
+    }
+  }
+  catch (error) {
+    if (currentRequestId !== searchRequestId)
+      return
+
+    searchSpotResults.value = []
+    searchUserResults.value = []
+    console.error('搜索失败', error)
+  }
+  finally {
+    if (currentRequestId === searchRequestId) {
+      isSearchingPlaces.value = false
+      isSearchingUsers.value = false
+    }
+  }
+}
+
+function clearPendingSearch() {
+  if (searchDebounceTimer !== null) {
+    clearTimeout(searchDebounceTimer)
+    searchDebounceTimer = null
+  }
+}
+
+function triggerDebouncedSearch(keyword: string) {
+  clearPendingSearch()
+
+  if (!keyword.trim()) {
+    void performSearch(keyword)
+    return
+  }
+
+  searchDebounceTimer = setTimeout(() => {
+    searchDebounceTimer = null
+    void performSearch(keyword)
+  }, SEARCH_DEBOUNCE_MS)
+}
+
+function formatDistance(distance?: number) {
+  if (typeof distance !== 'number' || Number.isNaN(distance)) {
+    return ''
+  }
+
+  if (distance >= 1000) {
+    return `${(distance / 1000).toFixed(1)}km`
+  }
+
+  return `${Math.round(distance)}m`
+}
+
 function onSearchInput(e: any) {
   searchKeyword.value = e.detail?.value ?? e.target?.value ?? ''
-  if (searchKeyword.value.trim()) {
-    searchResults.value = spotStore.searchSpots(searchKeyword.value)
-  }
-  else {
-    searchResults.value = []
-  }
+  triggerDebouncedSearch(searchKeyword.value)
 }
 
 function onSearchConfirm() {
-  if (searchKeyword.value.trim()) {
-    searchResults.value = spotStore.searchSpots(searchKeyword.value)
-  }
+  clearPendingSearch()
+  void performSearch(searchKeyword.value)
 }
 
-function onSearchResultTap(spot: FoodSpot) {
+function onSpotSearchResultTap(place: IMapSearchPlaceItem) {
   showSearchPanel.value = false
   searchKeyword.value = ''
-  searchResults.value = []
-  // 移动地图中心到该地点并展示卡片
-  setMapCenter(spot)
-  selectedSpot.value = spot
+  searchUserResults.value = []
+  selectedSpot.value = null
+  selectedMapPlace.value = place
+  setMapCenter(place)
   showBottomCard.value = true
 }
 
+function onUserSearchResultTap(user: ISearchUserItem) {
+  uni.showModal({
+    title: user.nickname,
+    content: `账号：${user.username}\n手机号：${user.phoneMasked || '未绑定'}`,
+    showCancel: false,
+  })
+}
+
 function closeSearch() {
+  clearPendingSearch()
   showSearchPanel.value = false
   searchKeyword.value = ''
-  searchResults.value = []
+  searchSpotResults.value = []
+  searchUserResults.value = []
+  isSearchingPlaces.value = false
+  isSearchingUsers.value = false
+  selectedMapPlace.value = null
+  searchRequestId += 1
 }
 
 /** 显示的地点列表 */
 const displaySpots = computed(() => spotStore.allSpots)
 
 /** 地图标记点 - 使用自定义 callout 展示更多信息 */
-const markers = computed(() =>
-  displaySpots.value.map((spot) => {
+const markers = computed(() => {
+  const localMarkers = displaySpots.value.map((spot) => {
     const isFav = favoriteStore.isFavorited(spot.id)
     return {
       id: spot.id,
@@ -180,12 +347,49 @@ const markers = computed(() =>
         borderColor: '#ff6633',
       },
     }
-  }),
-)
+  })
+
+  const searchPlaceMarkers = searchSpotResults.value.map((place, index) => {
+    const isSelected = selectedMapPlace.value?.id === place.id
+    return {
+      id: getSearchPlaceMarkerId(index),
+      latitude: place.latitude,
+      longitude: place.longitude,
+      title: place.title,
+      iconPath: '/static/marker.png',
+      width: isSelected ? 36 : 32,
+      height: isSelected ? 36 : 32,
+      callout: {
+        content: `${place.title}\n${place.address || place.category || '地图地点'}`,
+        color: '#333333',
+        fontSize: 12,
+        textAlign: 'center' as const,
+        borderRadius: 10,
+        padding: 8,
+        display: 'BYCLICK' as const,
+        bgColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: isSelected ? '#2f7cf6' : '#ff9b73',
+      },
+    }
+  })
+
+  return [...localMarkers, ...searchPlaceMarkers]
+})
 
 /** 点击地图标记 */
 function onMarkerTap(e: any) {
   const markerId = e.detail?.markerId ?? e.markerId
+
+  const searchPlace = findSearchPlaceByMarkerId(markerId)
+  if (searchPlace) {
+    selectedSpot.value = null
+    selectedMapPlace.value = searchPlace
+    setMapCenter(searchPlace)
+    showBottomCard.value = true
+    return
+  }
+
   const spot = displaySpots.value.find(s => s.id === markerId)
   if (!spot)
     return
@@ -196,6 +400,7 @@ function onMarkerTap(e: any) {
     return
   }
 
+  selectedMapPlace.value = null
   selectedSpot.value = spot
   showBottomCard.value = true
   // 移动地图中心到选中地点
@@ -205,6 +410,16 @@ function onMarkerTap(e: any) {
 /** 点击 callout 也跳转详情 */
 function onCalloutTap(e: any) {
   const markerId = e.detail?.markerId ?? e.markerId
+
+  const searchPlace = findSearchPlaceByMarkerId(markerId)
+  if (searchPlace) {
+    selectedSpot.value = null
+    selectedMapPlace.value = searchPlace
+    setMapCenter(searchPlace)
+    showBottomCard.value = true
+    return
+  }
+
   const spot = displaySpots.value.find(s => s.id === markerId)
   if (spot)
     goDetail(spot)
@@ -215,6 +430,7 @@ function onMapTap() {
   if (showBottomCard.value) {
     showBottomCard.value = false
     selectedSpot.value = null
+    selectedMapPlace.value = null
   }
 }
 
@@ -222,6 +438,19 @@ function onMapTap() {
 function goDetail(spot: FoodSpot) {
   uni.navigateTo({
     url: `/pages/spot/detail?id=${spot.id}`,
+  })
+}
+
+function openMapPlaceLocation() {
+  if (!selectedMapPlace.value) {
+    return
+  }
+
+  uni.openLocation({
+    latitude: selectedMapPlace.value.latitude,
+    longitude: selectedMapPlace.value.longitude,
+    name: selectedMapPlace.value.title,
+    address: selectedMapPlace.value.address,
   })
 }
 
@@ -274,7 +503,7 @@ function relocate() {
         <view class="search-panel-input-wrap">
           <view class="i-carbon-search text-16px text-gray-400" />
           <input
-            class="search-panel-input" :value="searchKeyword" placeholder="搜索店名、分类、地址" focus confirm-type="search"
+            class="search-panel-input" :value="searchKeyword" placeholder="搜索地点、地址、用户昵称或手机号" focus confirm-type="search"
             @input="onSearchInput" @confirm="onSearchConfirm"
           >
         </view>
@@ -282,26 +511,76 @@ function relocate() {
       </view>
       <!-- 搜索结果 -->
       <scroll-view scroll-y class="search-results">
-        <view v-for="item in searchResults" :key="item.id" class="search-result-item" @click="onSearchResultTap(item)">
-          <image :src="item.cover" class="h-50px w-50px flex-shrink-0 rounded-8px" mode="aspectFill" />
-          <view class="ml-3 min-w-0 flex-1">
-            <view class="truncate text-14px text-gray-800 font-medium">
-              {{ item.name }}
+        <view v-if="searchKeyword" class="search-section">
+          <view class="search-section-title">
+            地点
+            <text class="search-section-count">{{ searchSpotResults.length }}</text>
+          </view>
+          <view v-if="isSearchingPlaces" class="search-empty-tip">
+            正在搜索地点...
+          </view>
+          <view v-for="item in searchSpotResults" v-else :key="`spot-${item.id}`" class="search-result-item" @click="onSpotSearchResultTap(item)">
+            <view class="search-place-avatar">
+              <view class="i-carbon-location-filled text-18px text-orange-500" />
             </view>
-            <view class="mt-1 flex items-center gap-2 text-12px text-gray-400">
-              <text>★{{ item.rating }}</text>
-              <text>¥{{ item.avgPrice }}/人</text>
-            </view>
-            <view class="mt-0.5 truncate text-12px text-gray-400">
-              {{ item.address }}
+            <view class="ml-3 min-w-0 flex-1">
+              <view class="truncate text-14px text-gray-800 font-medium">
+                {{ item.title }}
+              </view>
+              <view class="mt-1 flex items-center gap-2 text-12px text-gray-400">
+                <text>{{ item.category || '地图地点' }}</text>
+                <text v-if="item.distance">{{ formatDistance(item.distance) }}</text>
+              </view>
+              <view class="mt-0.5 truncate text-12px text-gray-400">
+                {{ item.district }}{{ item.address }}
+              </view>
             </view>
           </view>
+          <view v-if="!isSearchingPlaces && searchSpotResults.length === 0" class="search-empty-tip">
+            未找到相关地点
+          </view>
         </view>
-        <view v-if="searchKeyword && searchResults.length === 0" class="py-10 text-center text-13px text-gray-400">
-          未找到相关地点
+
+        <view v-if="searchKeyword" class="search-section">
+          <view class="search-section-title">
+            用户
+            <text class="search-section-count">{{ searchUserResults.length }}</text>
+          </view>
+          <view v-if="isSearchingUsers" class="search-empty-tip">
+            正在搜索用户...
+          </view>
+          <view v-for="user in searchUserResults" v-else :key="`user-${user.userId}`" class="search-result-item" @click="onUserSearchResultTap(user)">
+            <image :src="user.avatar || '/static/images/default-avatar.png'" class="h-50px w-50px flex-shrink-0 rounded-full" mode="aspectFill" />
+            <view class="ml-3 min-w-0 flex-1">
+              <view class="flex items-center gap-2">
+                <view class="truncate text-14px text-gray-800 font-medium">
+                  {{ user.nickname }}
+                </view>
+                <view class="search-user-badge">
+                  用户
+                </view>
+              </view>
+              <view class="mt-1 truncate text-12px text-gray-500">
+                账号：{{ user.username }}
+              </view>
+              <view class="mt-0.5 truncate text-12px text-gray-400">
+                手机号：{{ user.phoneMasked || '未绑定手机号' }}
+              </view>
+            </view>
+          </view>
+          <view v-if="!isSearchingUsers && searchUserResults.length === 0" class="search-empty-tip">
+            未找到相关用户
+          </view>
+        </view>
+
+        <view
+          v-if="searchKeyword && !isSearchingPlaces && !isSearchingUsers && searchSpotResults.length === 0 && searchUserResults.length === 0"
+          class="py-10 text-center text-13px text-gray-400"
+        >
+          未找到相关地点或用户
         </view>
         <view v-if="!searchKeyword" class="py-10 text-center text-13px text-gray-300">
-          输入关键词搜索美食地点
+          输入关键词搜索地图上的地点或用户
         </view>
       </scroll-view>
     </view>
@@ -366,6 +645,39 @@ function relocate() {
           <view class="card-action-btn" @click.stop="goDetail(selectedSpot)">
             <view class="i-carbon-navigation text-18px text-blue-500" />
             <text class="text-11px text-blue-500">导航</text>
+          </view>
+        </view>
+      </view>
+
+      <view v-else-if="selectedMapPlace" class="card-content">
+        <view class="drag-bar" />
+
+        <view class="flex gap-3">
+          <view class="search-place-card-avatar">
+            <view class="i-carbon-location-filled text-24px text-blue-500" />
+          </view>
+          <view class="min-w-0 flex-1">
+            <view class="truncate text-16px text-gray-900 font-bold">
+              {{ selectedMapPlace.title }}
+            </view>
+            <view class="mt-1 flex items-center gap-2 text-12px text-gray-500">
+              <text>{{ selectedMapPlace.category || '地图地点' }}</text>
+              <text v-if="selectedMapPlace.distance">距离 {{ formatDistance(selectedMapPlace.distance) }}</text>
+            </view>
+            <view class="mt-1 text-12px text-gray-500">
+              {{ selectedMapPlace.district }}{{ selectedMapPlace.address }}
+            </view>
+          </view>
+        </view>
+
+        <view class="card-actions">
+          <view class="card-action-btn" @click.stop="openMapPlaceLocation">
+            <view class="i-carbon-navigation text-18px text-blue-500" />
+            <text class="text-11px text-blue-500">打开位置</text>
+          </view>
+          <view class="card-action-btn" @click.stop="closeSearch">
+            <view class="i-carbon-close text-18px text-gray-500" />
+            <text class="text-11px text-gray-500">关闭搜索</text>
           </view>
         </view>
       </view>
@@ -442,6 +754,25 @@ function relocate() {
   height: calc(100vh - 120px);
 }
 
+.search-section {
+  padding: 8px 0 4px;
+}
+
+.search-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #8a5a3b;
+}
+
+.search-section-count {
+  font-size: 12px;
+  color: #b0b0b0;
+}
+
 .search-result-item {
   display: flex;
   align-items: center;
@@ -451,6 +782,40 @@ function relocate() {
   &:active {
     background: #f8f8f8;
   }
+}
+
+.search-place-avatar,
+.search-place-card-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #fff1e8 0%, #ffe4d4 100%);
+}
+
+.search-place-avatar {
+  width: 50px;
+  height: 50px;
+}
+
+.search-place-card-avatar {
+  width: 80px;
+  height: 80px;
+}
+
+.search-empty-tip {
+  padding: 8px 16px 14px;
+  font-size: 12px;
+  color: #b0b0b0;
+}
+
+.search-user-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fff1e8;
+  font-size: 11px;
+  color: #ff7b4a;
 }
 
 .relocate-btn {

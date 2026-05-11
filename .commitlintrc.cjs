@@ -6,4 +6,7 @@ module.exports = {
       headerCorrespondence: ['type', 'scope', 'subject'],
     },
   },
+  rules: {
+    'subject-case': [0],
+  },
 }

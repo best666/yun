@@ -21,6 +21,20 @@ interface ImportMetaEnv {
   readonly VITE_SERVER_BASEURL_WEIXIN_TRIAL?: string
   /** 微信小程序 release 环境接口地址 */
   readonly VITE_SERVER_BASEURL_WEIXIN_RELEASE?: string
+  /** H5 高德 JS API Key，仅用于浏览器地图 SDK */
+  readonly VITE_AMAP_JS_KEY_H5?: string
+  /** 高德地图通用 Key */
+  readonly VITE_AMAP_KEY?: string
+  /** H5 / App 高德地图 Key */
+  readonly VITE_AMAP_KEY_H5?: string
+  /** 微信小程序高德 Key */
+  readonly VITE_AMAP_KEY_MP_WEIXIN?: string
+  /** 腾讯地图通用 Key */
+  readonly VITE_TENCENT_MAP_KEY?: string
+  /** H5 腾讯地图 Key */
+  readonly VITE_TENCENT_MAP_KEY_H5?: string
+  /** 微信小程序腾讯地图 Key */
+  readonly VITE_TENCENT_MAP_KEY_MP_WEIXIN?: string
   /** H5是否需要代理 */
   readonly VITE_APP_PROXY_ENABLE: 'true' | 'false'
   /** H5是否需要代理，需要的话有个前缀 */

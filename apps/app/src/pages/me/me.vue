@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import type { SpotDetail } from '@/store/spot'
-import { useFavoriteStore, useFootprintStore, useSpotStore, useTokenStore, useUserContentStore, useUserStore } from '@/store'
+import { useFavoriteStore, useFootprintStore, useMapSettingStore, useSpotStore, useTokenStore, useUserContentStore, useUserStore } from '@/store'
 import { toLoginPage } from '@/utils/toLoginPage'
 
 definePage({
@@ -20,6 +20,7 @@ const footprintStore = useFootprintStore()
 const userContentStore = useUserContentStore()
 const tokenStore = useTokenStore()
 const authUserStore = useUserStore()
+const mapSettingStore = useMapSettingStore()
 
 const guestUserInfo = reactive({
   nickname: '美食探索者',
@@ -132,6 +133,13 @@ const expandedAction = ref('')
 /** 设置面板 */
 const showSettings = ref(false)
 
+const navigationMapOptions = [
+  { label: '每次选择', value: 'ask' },
+  { label: '系统地图', value: 'system' },
+  { label: '腾讯地图', value: 'tencent' },
+  { label: '高德地图', value: 'amap' },
+] as const
+
 function onMenuTap(item: MenuItem) {
   if (item.action === 'favorites' || item.action === 'footprint' || item.action === 'reviews' || item.action === 'notes') {
     expandedAction.value = expandedAction.value === item.action ? '' : item.action
@@ -226,6 +234,18 @@ async function handleLogout() {
   await tokenStore.logout()
   showSettings.value = false
   uni.showToast({ title: '已退出登录', icon: 'success' })
+}
+
+function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
+  if (mapSettingStore.navigationMapApp === mapApp) {
+    return
+  }
+
+  mapSettingStore.setNavigationMapApp(mapApp)
+  uni.showToast({
+    title: `导航默认已切换为${mapSettingStore.navigationMapAppLabel}`,
+    icon: 'none',
+  })
 }
 </script>
 
@@ -441,6 +461,35 @@ async function handleLogout() {
           </view>
           <view class="i-carbon-chevron-right text-16px text-gray-300" />
         </view>
+        <view class="settings-item settings-item--column">
+          <view class="flex items-center justify-between">
+            <view class="flex items-center gap-3">
+              <view class="i-carbon-map text-18px text-gray-500" />
+              <view>
+                <view class="text-15px text-gray-700">
+                  导航地图
+                </view>
+                <view class="mt-1 text-12px text-gray-400">
+                  地点详情点击导航时，可按这里的偏好直接打开或每次选择
+                </view>
+              </view>
+            </view>
+            <view class="text-12px text-orange-500">
+              当前：{{ mapSettingStore.navigationMapAppLabel }}
+            </view>
+          </view>
+          <view class="provider-switches">
+            <view
+              v-for="option in navigationMapOptions"
+              :key="option.value"
+              class="provider-chip"
+              :class="{ 'provider-chip--active': mapSettingStore.navigationMapApp === option.value }"
+              @click.stop="setNavigationMapApp(option.value)"
+            >
+              {{ option.label }}
+            </view>
+          </view>
+        </view>
         <view class="settings-item" @click="showAbout">
           <view class="flex items-center gap-3">
             <view class="i-carbon-information text-18px text-gray-500" />
@@ -648,6 +697,33 @@ async function handleLogout() {
 
   &:active {
     opacity: 0.7;
+  }
+}
+
+.settings-item--column {
+  display: block;
+}
+
+.provider-switches {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.provider-chip {
+  min-width: 88px;
+  text-align: center;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #6b7280;
+  font-size: 13px;
+
+  &--active {
+    background: #fff4ed;
+    border-color: #ff8c42;
+    color: #ea580c;
   }
 }
 
