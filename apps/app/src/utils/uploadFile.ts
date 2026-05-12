@@ -1,3 +1,5 @@
+import { normalizeUploadError, parseUploadResponseData } from '@/utils/uploadShared'
+
 /**
  * 文件上传钩子函数使用示例
  * @example
@@ -75,7 +77,7 @@ export function useUpload<T = string>(url: string, formData: Record<string, any>
   /** 上传中状态 */
   const loading = ref(false)
   /** 上传错误状态 */
-  const error = ref(false)
+  const error = ref<Error | null>(null)
   /** 上传成功后的响应数据 */
   const data = ref<T>()
   /** 上传进度（0-100） */
@@ -174,8 +176,8 @@ export function useUpload<T = string>(url: string, formData: Record<string, any>
         })
       },
       fail: (err) => {
-        console.error('选择媒体文件失败:', err)
-        error.value = true
+        const normalizedError = normalizeUploadError(err)
+        error.value = normalizedError
         onError?.(err)
       },
     })
@@ -188,8 +190,6 @@ export function useUpload<T = string>(url: string, formData: Record<string, any>
       sizeType,
       sourceType,
       success: (res) => {
-        console.log('选择图片成功:', res)
-
         // 开始上传
         loading.value = true
         progress.value = 0
@@ -208,8 +208,8 @@ export function useUpload<T = string>(url: string, formData: Record<string, any>
         })
       },
       fail: (err) => {
-        console.error('选择图片失败:', err)
-        error.value = true
+        const normalizedError = normalizeUploadError(err)
+        error.value = normalizedError
         onError?.(err)
       },
     })
@@ -233,7 +233,7 @@ interface UploadFileOptions<T> {
   /** 上传成功后的响应数据 */
   data: Ref<T | undefined>
   /** 上传错误状态 */
-  error: Ref<boolean>
+  error: Ref<Error | null>
   /** 上传中状态 */
   loading: Ref<boolean>
   /** 上传进度（0-100） */
@@ -281,25 +281,22 @@ function uploadFile<T>({
       },
       // 确保文件名称合法
       success: (uploadFileRes) => {
-        console.log('上传文件成功:', uploadFileRes)
         try {
-          // 解析响应数据
-          const { data: _data } = JSON.parse(uploadFileRes.data)
+          const parsedData = parseUploadResponseData<T>(uploadFileRes.data)
           // 上传成功
-          data.value = _data as T
-          onSuccess?.(_data)
+          data.value = parsedData
+          onSuccess?.(parsedData as Record<string, any>)
         }
         catch (err) {
           // 响应解析错误
-          console.error('解析上传响应失败:', err)
-          error.value = true
-          onError?.(new Error('上传响应解析失败'))
+          const normalizedError = normalizeUploadError(err)
+          error.value = normalizedError
+          onError?.(normalizedError)
         }
       },
       fail: (err) => {
         // 上传请求失败
-        console.error('上传文件失败:', err)
-        error.value = true
+        error.value = normalizeUploadError(err)
         onError?.(err)
       },
       complete: () => {
@@ -317,8 +314,7 @@ function uploadFile<T>({
   }
   catch (err) {
     // 创建上传任务失败
-    console.error('创建上传任务失败:', err)
-    error.value = true
+    error.value = normalizeUploadError(err)
     loading.value = false
     onError?.(new Error('创建上传任务失败'))
   }

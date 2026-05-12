@@ -1,13 +1,30 @@
 <script lang="ts" setup>
 import type { FavoriteSpotSummary, ISpotInteractionNotificationItem } from '@/api/types/spot'
 import { getSpotDetail } from '@/api/spot'
+import MeDiscussionItem from '@/components/me/MeDiscussionItem.vue'
+import MeReviewItem from '@/components/me/MeReviewItem.vue'
+import MeReviewReplyItem from '@/components/me/MeReviewReplyItem.vue'
+import MeSpotSummaryItem from '@/components/me/MeSpotSummaryItem.vue'
 import { useFavoriteStore, useFootprintStore, useMapSettingStore, useTokenStore, useUserContentStore, useUserStore } from '@/store'
 import { buildSpotDetailUrlFromFavorite } from '@/utils/spotDetail'
 import { toLoginPage } from '@/utils/toLoginPage'
 
-/** 足迹地点展示项，基于真实详情摘要组装，避免继续依赖本地假点位。 */
 interface FootprintSpotSummary extends FavoriteSpotSummary {
   viewedAt: string
+}
+
+interface MenuItem {
+  icon: string
+  label: string
+  action: string
+  count?: () => number
+}
+
+interface NotificationGroupItem {
+  key: string
+  title: string
+  icon: string
+  items: ISpotInteractionNotificationItem[]
 }
 
 definePage({
@@ -27,10 +44,16 @@ const userContentStore = useUserContentStore()
 const tokenStore = useTokenStore()
 const authUserStore = useUserStore()
 const mapSettingStore = useMapSettingStore()
-/** 足迹详情摘要列表，来源于真实地点详情接口。 */
+
 const footprintSpots = ref<FootprintSpotSummary[]>([])
-/** 足迹摘要加载态，避免用户展开时看到空白闪烁。 */
 const isLoadingFootprints = ref(false)
+const showEditProfile = ref(false)
+const showSettings = ref(false)
+const expandedAction = ref('')
+const editForm = reactive({
+  nickname: '',
+  desc: '',
+})
 
 const guestUserInfo = reactive({
   nickname: '美食探索者',
@@ -54,78 +77,7 @@ const displayUserInfo = computed(() => {
   }
 })
 
-onShow(async () => {
-  await syncFootprintSpots()
-
-  if (hasLogin.value && authUserStore.userInfo.userId < 0) {
-    await authUserStore.fetchUserInfo()
-  }
-
-  if (hasLogin.value) {
-    try {
-      await favoriteStore.ensureServerFavoritesLoaded(true)
-      await Promise.all([
-        userContentStore.fetchMyReviews(),
-        userContentStore.fetchMyReviewReplies(),
-        userContentStore.fetchMyDiscussions(),
-        userContentStore.fetchMyNotifications(),
-      ])
-    }
-    catch (error) {
-      console.error('同步个人内容失败', error)
-    }
-  }
-  else {
-    userContentStore.clearServerContent()
-  }
-})
-
-/** 是否显示编辑弹窗 */
-const showEditProfile = ref(false)
-const editForm = reactive({
-  nickname: '',
-  desc: '',
-})
-
-function openEditProfile() {
-  if (!hasLogin.value) {
-    toLoginPage()
-    return
-  }
-
-  editForm.nickname = displayUserInfo.value.nickname
-  editForm.desc = displayUserInfo.value.desc
-  showEditProfile.value = true
-}
-
-function saveProfile() {
-  if (!editForm.nickname.trim()) {
-    uni.showToast({ title: '昵称不能为空', icon: 'none' })
-    return
-  }
-  authUserStore.setUserInfo({
-    ...authUserStore.userInfo,
-    nickname: editForm.nickname.trim(),
-  })
-  showEditProfile.value = false
-  uni.showToast({ title: '修改成功', icon: 'success' })
-}
-
-async function handleLoginOrProfile() {
-  if (!hasLogin.value) {
-    toLoginPage()
-    return
-  }
-
-  openEditProfile()
-}
-
-/** 收藏的地点列表 */
-const favoriteSpots = computed(() => {
-  return favoriteStore.favoriteSummaries
-})
-
-/** 统计 - 从实际数据获取 */
+const favoriteSpots = computed(() => favoriteStore.favoriteSummaries)
 const stats = computed(() => [
   { label: '收藏', value: favoriteStore.favoriteCount },
   { label: '评价', value: userContentStore.reviewCount },
@@ -133,21 +85,6 @@ const stats = computed(() => [
   { label: '讨论', value: userContentStore.discussionCount },
   { label: '足迹', value: footprintStore.footprintCount },
 ])
-
-interface MenuItem {
-  icon: string
-  label: string
-  action: string
-  count?: () => number
-}
-
-/** 互动提醒分组项，避免模板里直接写复杂分类判断。 */
-interface NotificationGroupItem {
-  key: string
-  title: string
-  icon: string
-  items: ISpotInteractionNotificationItem[]
-}
 
 const menuList: MenuItem[] = [
   { icon: 'i-carbon-favorite', label: '我的收藏', action: 'favorites', count: () => favoriteStore.favoriteCount },
@@ -159,13 +96,6 @@ const menuList: MenuItem[] = [
   { icon: 'i-carbon-settings', label: '设置', action: 'settings' },
 ]
 
-/** 当前展开的菜单 */
-const expandedAction = ref('')
-
-/** 设置面板 */
-const showSettings = ref(false)
-
-/** 提醒类型标题映射，统一管理后续新增提醒类型的中文展示。 */
 const notificationGroupMetaMap: Record<string, { title: string, icon: string }> = {
   discussion_like: { title: '点赞我的讨论', icon: 'i-carbon-thumbs-up' },
   review_like: { title: '点赞我的评价', icon: 'i-carbon-thumbs-up-filled' },
@@ -176,7 +106,6 @@ const notificationGroupMetaMap: Record<string, { title: string, icon: string }> 
   favorite_spot_new_question: { title: '收藏地新讨论', icon: 'i-carbon-chat-bot' },
 }
 
-/** 将互动提醒按业务类型分组，减少列表混杂，提高扫读效率。 */
 const groupedNotifications = computed<NotificationGroupItem[]>(() => {
   const groupedMap = new Map<string, NotificationGroupItem>()
 
@@ -208,7 +137,66 @@ const navigationMapOptions = [
   { label: '高德地图', value: 'amap' },
 ] as const
 
-/** 同步足迹对应的真实地点摘要，避免我的页继续依赖本地空 store。 */
+onShow(async () => {
+  await syncFootprintSpots()
+
+  if (hasLogin.value && authUserStore.userInfo.userId < 0) {
+    await authUserStore.fetchUserInfo()
+  }
+
+  if (hasLogin.value) {
+    try {
+      await favoriteStore.ensureServerFavoritesLoaded(true)
+      await Promise.all([
+        userContentStore.fetchMyReviews(),
+        userContentStore.fetchMyReviewReplies(),
+        userContentStore.fetchMyDiscussions(),
+        userContentStore.fetchMyNotifications(),
+      ])
+    }
+    catch (error) {
+      console.error('同步个人内容失败', error)
+    }
+  }
+  else {
+    userContentStore.clearServerContent()
+  }
+})
+
+function openEditProfile() {
+  if (!hasLogin.value) {
+    toLoginPage()
+    return
+  }
+
+  editForm.nickname = displayUserInfo.value.nickname
+  editForm.desc = displayUserInfo.value.desc
+  showEditProfile.value = true
+}
+
+function saveProfile() {
+  if (!editForm.nickname.trim()) {
+    uni.showToast({ title: '昵称不能为空', icon: 'none' })
+    return
+  }
+
+  authUserStore.setUserInfo({
+    ...authUserStore.userInfo,
+    nickname: editForm.nickname.trim(),
+  })
+  showEditProfile.value = false
+  uni.showToast({ title: '修改成功', icon: 'success' })
+}
+
+function handleLoginOrProfile() {
+  if (!hasLogin.value) {
+    toLoginPage()
+    return
+  }
+
+  openEditProfile()
+}
+
 async function syncFootprintSpots() {
   const footprintRecords = [...footprintStore.footprints]
 
@@ -251,7 +239,6 @@ async function syncFootprintSpots() {
   }
 }
 
-/** 将足迹时间格式化为更易读的本地时间，方便用户判断最近浏览记录。 */
 function formatDateTime(value: string) {
   if (!value) {
     return '--'
@@ -272,7 +259,7 @@ function formatDateTime(value: string) {
 }
 
 function onMenuTap(item: MenuItem) {
-  if (item.action === 'favorites' || item.action === 'footprint' || item.action === 'reviews' || item.action === 'review-replies' || item.action === 'discussions' || item.action === 'notifications') {
+  if (['favorites', 'footprint', 'reviews', 'review-replies', 'discussions', 'notifications'].includes(item.action)) {
     expandedAction.value = expandedAction.value === item.action ? '' : item.action
 
     if (item.action === 'footprint' && expandedAction.value === 'footprint') {
@@ -285,32 +272,32 @@ function onMenuTap(item: MenuItem) {
 
     return
   }
+
   if (item.action === 'settings') {
     showSettings.value = true
-    return
   }
 }
 
-/** 删除评价回复。 */
 function removeReviewReply(replyId: string) {
   uni.showModal({
     title: '提示',
     content: '确定要删除这条回复吗？',
     async success(res) {
-      if (res.confirm) {
-        try {
-          await userContentStore.removeReviewReply(Number(replyId))
-          uni.showToast({ title: '已删除', icon: 'none' })
-        }
-        catch (error) {
-          console.error('删除评价回复失败', error)
-        }
+      if (!res.confirm) {
+        return
+      }
+
+      try {
+        await userContentStore.removeReviewReply(Number(replyId))
+        uni.showToast({ title: '已删除', icon: 'none' })
+      }
+      catch (error) {
+        console.error('删除评价回复失败', error)
       }
     },
   })
 }
 
-/** 根据提醒目标跳转到更准确的详情视图，评价相关提醒直接落到评价 tab。 */
 function goNotificationTarget(notification: ISpotInteractionNotificationItem) {
   if (!notification.spotId) {
     return
@@ -331,7 +318,6 @@ function goNotificationTarget(notification: ISpotInteractionNotificationItem) {
   })
 }
 
-/** 跳转到地点详情。 */
 function goSpotDetail(spot: number | FavoriteSpotSummary) {
   if (typeof spot === 'number') {
     uni.navigateTo({ url: `/pages/spot/detail?id=${spot}` })
@@ -341,7 +327,6 @@ function goSpotDetail(spot: number | FavoriteSpotSummary) {
   uni.navigateTo({ url: buildSpotDetailUrlFromFavorite(spot) })
 }
 
-/** 取消收藏。 */
 async function removeFavorite(spot: FavoriteSpotSummary) {
   try {
     const result = await favoriteStore.toggleFavorite(spot)
@@ -352,47 +337,44 @@ async function removeFavorite(spot: FavoriteSpotSummary) {
   }
 }
 
-/** 删除评价 */
 function removeReview(reviewId: string) {
   uni.showModal({
     title: '提示',
     content: '确定要删除这条评价吗？',
     async success(res) {
-      if (res.confirm) {
-        try {
-          await userContentStore.removeReview(Number(reviewId))
-          uni.showToast({ title: '已删除', icon: 'none' })
-        }
-        catch (error) {
-          console.error('删除评价失败', error)
-        }
+      if (!res.confirm) {
+        return
+      }
+
+      try {
+        await userContentStore.removeReview(Number(reviewId))
+        uni.showToast({ title: '已删除', icon: 'none' })
+      }
+      catch (error) {
+        console.error('删除评价失败', error)
       }
     },
   })
 }
 
-/** 删除讨论 */
 function removeDiscussion(discussionId: string) {
   uni.showModal({
     title: '提示',
     content: '确定要删除这条讨论吗？',
     async success(res) {
-      if (res.confirm) {
-        try {
-          await userContentStore.removeDiscussion(Number(discussionId))
-          uni.showToast({ title: '已删除', icon: 'none' })
-        }
-        catch (error) {
-          console.error('删除讨论失败', error)
-        }
+      if (!res.confirm) {
+        return
+      }
+
+      try {
+        await userContentStore.removeDiscussion(Number(discussionId))
+        uni.showToast({ title: '已删除', icon: 'none' })
+      }
+      catch (error) {
+        console.error('删除讨论失败', error)
       }
     },
   })
-}
-
-/** 渲染星星 */
-function renderStars(rating: number): string {
-  return '★'.repeat(Math.floor(rating)) + (rating % 1 >= 0.5 ? '☆' : '')
 }
 
 function clearCache() {
@@ -400,14 +382,16 @@ function clearCache() {
     title: '提示',
     content: '确定要清除缓存吗？',
     success(res) {
-      if (res.confirm) {
-        try {
-          uni.clearStorageSync()
-          uni.showToast({ title: '缓存已清除', icon: 'success' })
-        }
-        catch {
-          uni.showToast({ title: '清除失败', icon: 'none' })
-        }
+      if (!res.confirm) {
+        return
+      }
+
+      try {
+        uni.clearStorageSync()
+        uni.showToast({ title: '缓存已清除', icon: 'success' })
+      }
+      catch {
+        uni.showToast({ title: '清除失败', icon: 'none' })
       }
     },
   })
@@ -418,10 +402,13 @@ function clearFootprints() {
     title: '提示',
     content: '确定要清空浏览足迹吗？',
     success(res) {
-      if (res.confirm) {
-        footprintStore.clearFootprints()
-        uni.showToast({ title: '足迹已清空', icon: 'success' })
+      if (!res.confirm) {
+        return
       }
+
+      footprintStore.clearFootprints()
+      footprintSpots.value = []
+      uni.showToast({ title: '足迹已清空', icon: 'success' })
     },
   })
 }
@@ -450,13 +437,13 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
 </script>
 
 <template>
-  <view class="me-page">
+  <view class="min-h-screen bg-#f5f5f5 pb-[calc(60px+env(safe-area-inset-bottom))]">
     <!-- 头部用户信息 -->
-    <view class="header">
-      <view class="header-bg" />
-      <view class="user-section">
-        <image :src="displayUserInfo.avatar" class="avatar" mode="aspectFill" />
-        <view class="user-info" @click="handleLoginOrProfile">
+    <view class="relative">
+      <view class="h-200px bg-[linear-gradient(135deg,#ff6633_0%,#ff8c42_100%)] pt-safe" />
+      <view class="relative z-10 mt--120px flex items-center gap-14px px-20px">
+        <image :src="displayUserInfo.avatar" class="me-avatar h-68px w-68px" mode="aspectFill" />
+        <view class="flex-1" @click="handleLoginOrProfile">
           <view class="flex items-center gap-2">
             <view class="text-18px text-white font-bold">
               {{ displayUserInfo.nickname }}
@@ -467,14 +454,14 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
             {{ displayUserInfo.desc }}
           </view>
         </view>
-        <view v-if="!hasLogin" class="login-pill" @click="toLoginPage()">
+        <view v-if="!hasLogin" class="me-login-pill" @click="toLoginPage()">
           去登录
         </view>
       </view>
 
       <!-- 统计 -->
-      <view class="stats-row">
-        <view v-for="stat in stats" :key="stat.label" class="stat-item">
+      <view class="relative z-10 mx-12px mt-16px flex rounded-12px bg-white py-16px shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+        <view v-for="stat in stats" :key="stat.label" class="flex-1 text-center">
           <view class="text-20px text-gray-800 font-bold">
             {{ stat.value }}
           </view>
@@ -486,12 +473,12 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
     </view>
 
     <!-- 菜单列表 -->
-    <view class="menu-card">
+    <view class="mx-12px mt-12px rounded-12px bg-white px-16px shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
       <view
         v-for="(item, index) in menuList"
         :key="item.label"
-        class="menu-item"
-        :class="{ 'menu-item--last': index === menuList.length - 1 }"
+        class="flex items-center justify-between border-b border-#f5f5f5 py-16px active:opacity-70"
+        :class="{ 'border-b-0': index === menuList.length - 1 }"
         @click="onMenuTap(item)"
       >
         <view class="flex items-center gap-3">
@@ -509,150 +496,94 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
     </view>
 
     <!-- 收藏列表展开 -->
-    <view v-if="expandedAction === 'favorites'" class="expand-card">
+    <view v-if="expandedAction === 'favorites'" class="mx-12px mb-12px rounded-12px bg-white px-16px py-8px shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
       <view v-if="favoriteSpots.length === 0" class="py-8 text-center text-13px text-gray-400">
         还没有收藏任何地点
       </view>
-      <view v-for="spot in favoriteSpots" :key="spot.id" class="expand-item" @click="goSpotDetail(spot)">
-        <image :src="spot.cover" class="h-60px w-60px flex-shrink-0 rounded-10px" mode="aspectFill" />
-        <view class="ml-3 min-w-0 flex-1">
-          <view class="truncate text-14px text-gray-800 font-medium">
-            {{ spot.name }}
-          </view>
-          <view class="mt-1 flex items-center gap-2 text-12px text-gray-400">
-            <text>★{{ spot.rating }}</text>
-            <text>¥{{ spot.avgPrice }}/人</text>
-          </view>
-          <view class="mt-0.5 truncate text-12px text-gray-400">
-            {{ spot.address }}
-          </view>
-        </view>
-        <view class="i-carbon-close flex-shrink-0 text-16px text-gray-300" @click.stop="removeFavorite(spot)" />
-      </view>
+      <MeSpotSummaryItem
+        v-for="spot in favoriteSpots"
+        :key="spot.id"
+        :spot="spot"
+        removable
+        @select="goSpotDetail"
+        @remove="removeFavorite"
+      />
     </view>
 
     <!-- 足迹列表展开 -->
-    <view v-if="expandedAction === 'footprint'" class="expand-card">
+    <view v-if="expandedAction === 'footprint'" class="mx-12px mb-12px rounded-12px bg-white px-16px py-8px shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
       <view v-if="isLoadingFootprints" class="py-8 text-center text-13px text-gray-400">
         正在加载浏览记录...
       </view>
       <view v-else-if="footprintSpots.length === 0" class="py-8 text-center text-13px text-gray-400">
         还没有浏览记录
       </view>
-      <view v-for="spot in footprintSpots" v-else :key="`${spot.id}-${spot.viewedAt}`" class="expand-item" @click="goSpotDetail(spot)">
-        <image :src="spot.cover" class="h-60px w-60px flex-shrink-0 rounded-10px" mode="aspectFill" />
-        <view class="ml-3 min-w-0 flex-1">
-          <view class="truncate text-14px text-gray-800 font-medium">
-            {{ spot.name }}
-          </view>
-          <view class="mt-1 flex items-center gap-2 text-12px text-gray-400">
-            <text>★{{ spot.rating }}</text>
-            <text>¥{{ spot.avgPrice }}/人</text>
-          </view>
-          <view class="mt-0.5 truncate text-12px text-gray-400">
-            {{ spot.address }}
-          </view>
-          <view class="mt-0.5 text-11px text-gray-300">
-            浏览于 {{ formatDateTime(spot.viewedAt) }}
-          </view>
-        </view>
-      </view>
+      <MeSpotSummaryItem
+        v-for="spot in footprintSpots"
+        v-else
+        :key="`${spot.id}-${spot.viewedAt}`"
+        :spot="spot"
+        :timestamp-label="`浏览于 ${formatDateTime(spot.viewedAt)}`"
+        @select="goSpotDetail"
+      />
     </view>
 
     <!-- 我的评价展开 -->
-    <view v-if="expandedAction === 'reviews'" class="expand-card">
+    <view v-if="expandedAction === 'reviews'" class="mx-12px mb-12px rounded-12px bg-white px-16px py-8px shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
       <view v-if="userContentStore.reviews.length === 0" class="py-8 text-center text-13px text-gray-400">
         还没有发布评价，去地点详情页写一篇吧
       </view>
-      <view v-for="review in userContentStore.reviews" :key="review.id" class="review-item">
-        <view class="flex items-center justify-between">
-          <view class="flex items-center gap-2" @click="goSpotDetail(review.spotId)">
-            <view class="rounded-6px bg-orange-50 px-2 py-1 text-12px text-orange-500">
-              {{ review.spotName }}
-            </view>
-            <text class="text-14px text-orange-400">{{ renderStars(review.rating) }}</text>
-          </view>
-          <view class="i-carbon-close flex-shrink-0 text-14px text-gray-300" @click.stop="removeReview(review.id)" />
-        </view>
-        <view class="mt-2 text-13px text-gray-600 leading-relaxed">
-          {{ review.content }}
-        </view>
-        <view class="mt-1 text-11px text-gray-400">
-          {{ review.time }}
-        </view>
-      </view>
+      <MeReviewItem
+        v-for="review in userContentStore.reviews"
+        :key="review.id"
+        :review="review"
+        @open-spot="goSpotDetail"
+        @remove="removeReview"
+      />
     </view>
 
     <!-- 我的评价回复展开 -->
-    <view v-if="expandedAction === 'review-replies'" class="expand-card">
+    <view v-if="expandedAction === 'review-replies'" class="mx-12px mb-12px rounded-12px bg-white px-16px py-8px shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
       <view v-if="userContentStore.reviewReplies.length === 0" class="py-8 text-center text-13px text-gray-400">
         还没有发布评价回复，去评价区参与讨论吧
       </view>
-      <view v-for="reply in userContentStore.reviewReplies" :key="reply.id" class="review-item">
-        <view class="flex items-center justify-between">
-          <view class="flex items-center gap-2" @click="goSpotDetail(reply.spotId)">
-            <view class="rounded-6px bg-orange-50 px-2 py-1 text-12px text-orange-500">
-              {{ reply.spotName }}
-            </view>
-            <view class="rounded-6px bg-gray-100 px-2 py-1 text-11px text-gray-500">
-              评价回复
-            </view>
-          </view>
-          <view class="i-carbon-close flex-shrink-0 text-14px text-gray-300" @click.stop="removeReviewReply(reply.id)" />
-        </view>
-        <view class="mt-2 rounded-12px bg-gray-50 px-3 py-2 text-12px text-gray-500 leading-relaxed">
-          {{ reply.reviewContent }}
-        </view>
-        <view class="mt-2 text-13px text-gray-600 leading-relaxed">
-          {{ reply.content }}
-        </view>
-        <view class="mt-1 text-11px text-gray-400">
-          {{ reply.time }}
-        </view>
-      </view>
+      <MeReviewReplyItem
+        v-for="reply in userContentStore.reviewReplies"
+        :key="reply.id"
+        :reply="reply"
+        @open-spot="goSpotDetail"
+        @remove="removeReviewReply"
+      />
     </view>
 
     <!-- 我的讨论展开 -->
-    <view v-if="expandedAction === 'discussions'" class="expand-card">
+    <view v-if="expandedAction === 'discussions'" class="mx-12px mb-12px rounded-12px bg-white px-16px py-8px shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
       <view v-if="userContentStore.discussions.length === 0" class="py-8 text-center text-13px text-gray-400">
         还没有发布讨论，去地点详情页分享路线和体验吧
       </view>
-      <view v-for="discussion in userContentStore.discussions" :key="discussion.id" class="review-item">
-        <view class="flex items-center justify-between">
-          <view class="flex items-center gap-2" @click="goSpotDetail(discussion.spotId)">
-            <view class="rounded-6px bg-orange-50 px-2 py-1 text-12px text-orange-500">
-              {{ discussion.spotName }}
-            </view>
-            <view class="flex items-center gap-1 text-12px" :class="discussion.likedByCurrentUser ? 'text-orange-500' : 'text-gray-400'">
-              <view :class="discussion.likedByCurrentUser ? 'i-carbon-thumbs-up-filled' : 'i-carbon-thumbs-up'" class="text-12px" />
-              <text>{{ discussion.likeCount }}</text>
-            </view>
-          </view>
-          <view class="i-carbon-close flex-shrink-0 text-14px text-gray-300" @click.stop="removeDiscussion(discussion.id)" />
-        </view>
-        <view class="mt-2 text-13px text-gray-600 leading-relaxed">
-          {{ discussion.content }}
-        </view>
-        <view class="mt-1 text-11px text-gray-400">
-          {{ discussion.time }}
-        </view>
-      </view>
+      <MeDiscussionItem
+        v-for="discussion in userContentStore.discussions"
+        :key="discussion.id"
+        :discussion="discussion"
+        @open-spot="goSpotDetail"
+        @remove="removeDiscussion"
+      />
     </view>
 
     <!-- 互动提醒展开 -->
-    <view v-if="expandedAction === 'notifications'" class="expand-card">
+    <view v-if="expandedAction === 'notifications'" class="mx-12px mb-12px rounded-12px bg-white px-16px py-8px shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
       <view v-if="userContentStore.notifications.length === 0" class="py-8 text-center text-13px text-gray-400">
         暂时没有新的互动提醒
       </view>
-      <view v-for="group in groupedNotifications" :key="group.key" class="notification-group">
-        <view class="notification-group__header">
+      <view v-for="group in groupedNotifications" :key="group.key" :class="groupedNotifications[0]?.key !== group.key ? 'mt-8px' : ''">
+        <view class="flex items-center justify-between py-[10px_0_4px]">
           <view class="flex items-center gap-2">
             <view :class="group.icon" class="text-14px text-orange-500" />
-            <text class="notification-group__title">{{ group.title }}</text>
+            <text class="text-13px text-gray-700 font-600">{{ group.title }}</text>
           </view>
-          <text class="notification-group__count">{{ group.items.length }} 条</text>
+          <text class="text-11px text-gray-400">{{ group.items.length }} 条</text>
         </view>
-        <view v-for="notification in group.items" :key="notification.id" class="review-item" @click="goNotificationTarget(notification)">
+        <view v-for="notification in group.items" :key="notification.id" class="border-b border-#f8f8f8 py-12px last:border-b-0" @click="goNotificationTarget(notification)">
           <view class="flex items-start justify-between gap-3">
             <view class="min-w-0 flex flex-1 items-start gap-3">
               <image :src="notification.actorAvatar" class="h-42px w-42px flex-shrink-0 rounded-full" mode="aspectFill" />
@@ -678,8 +609,8 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
     </view>
 
     <!-- 编辑资料弹窗 -->
-    <view v-if="showEditProfile" class="modal-overlay" @click="showEditProfile = false">
-      <view class="modal-content" @click.stop>
+    <view v-if="showEditProfile" class="fixed inset-0 z-1000 center bg-[rgba(0,0,0,0.5)]" @click="showEditProfile = false">
+      <view class="w-80% rounded-16px bg-white p-24px" @click.stop>
         <view class="text-16px text-gray-800 font-bold">
           编辑资料
         </view>
@@ -687,19 +618,19 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
           <view class="text-13px text-gray-500">
             昵称
           </view>
-          <input v-model="editForm.nickname" class="edit-input" placeholder="请输入昵称" :maxlength="20">
+          <input v-model="editForm.nickname" class="mt-8px rounded-10px bg-#f5f5f5 px-14px py-10px text-14px text-#333" placeholder="请输入昵称" :maxlength="20">
         </view>
         <view class="mt-3">
           <view class="text-13px text-gray-500">
             个性签名
           </view>
-          <input v-model="editForm.desc" class="edit-input" placeholder="请输入个性签名" :maxlength="30">
+          <input v-model="editForm.desc" class="mt-8px rounded-10px bg-#f5f5f5 px-14px py-10px text-14px text-#333" placeholder="请输入个性签名" :maxlength="30">
         </view>
         <view class="mt-5 flex gap-3">
-          <view class="modal-btn modal-btn--cancel" @click="showEditProfile = false">
+          <view class="flex-1 rounded-10px bg-#f5f5f5 py-12px text-center text-15px text-#666 active:opacity-80" @click="showEditProfile = false">
             取消
           </view>
-          <view class="modal-btn modal-btn--confirm" @click="saveProfile">
+          <view class="flex-1 rounded-10px bg-#ff6633 py-12px text-center text-15px text-white active:opacity-80" @click="saveProfile">
             保存
           </view>
         </view>
@@ -707,29 +638,29 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
     </view>
 
     <!-- 设置面板 -->
-    <view v-if="showSettings" class="modal-overlay" @click="showSettings = false">
-      <view class="settings-panel" @click.stop>
+    <view v-if="showSettings" class="fixed inset-0 z-1000 center bg-[rgba(0,0,0,0.5)]" @click="showSettings = false">
+      <view class="w-80% rounded-16px bg-white p-20px" @click.stop>
         <view class="flex items-center justify-between border-b-1px border-gray-100 pb-3">
           <view class="text-16px text-gray-800 font-bold">
             设置
           </view>
           <view class="i-carbon-close text-20px text-gray-400" @click="showSettings = false" />
         </view>
-        <view class="settings-item" @click="clearFootprints">
+        <view class="flex items-center justify-between border-b border-#f5f5f5 py-16px active:opacity-70" @click="clearFootprints">
           <view class="flex items-center gap-3">
             <view class="i-carbon-trash-can text-18px text-gray-500" />
             <text class="text-15px text-gray-700">清空浏览足迹</text>
           </view>
           <view class="i-carbon-chevron-right text-16px text-gray-300" />
         </view>
-        <view class="settings-item" @click="clearCache">
+        <view class="flex items-center justify-between border-b border-#f5f5f5 py-16px active:opacity-70" @click="clearCache">
           <view class="flex items-center gap-3">
             <view class="i-carbon-clean text-18px text-gray-500" />
             <text class="text-15px text-gray-700">清除缓存</text>
           </view>
           <view class="i-carbon-chevron-right text-16px text-gray-300" />
         </view>
-        <view class="settings-item settings-item--column">
+        <view class="border-b border-#f5f5f5 py-16px">
           <view class="flex items-center justify-between">
             <view class="flex items-center gap-3">
               <view class="i-carbon-map text-18px text-gray-500" />
@@ -746,26 +677,26 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
               当前：{{ mapSettingStore.navigationMapAppLabel }}
             </view>
           </view>
-          <view class="provider-switches">
+          <view class="mt-14px flex gap-10px">
             <view
               v-for="option in navigationMapOptions"
               :key="option.value"
-              class="provider-chip"
-              :class="{ 'provider-chip--active': mapSettingStore.navigationMapApp === option.value }"
+              class="map-provider-chip"
+              :class="{ '!border-#ff8c42 !bg-#fff4ed !text-#ea580c': mapSettingStore.navigationMapApp === option.value }"
               @click.stop="setNavigationMapApp(option.value)"
             >
               {{ option.label }}
             </view>
           </view>
         </view>
-        <view class="settings-item" @click="showAbout">
+        <view class="flex items-center justify-between border-b border-#f5f5f5 py-16px active:opacity-70" @click="showAbout">
           <view class="flex items-center gap-3">
             <view class="i-carbon-information text-18px text-gray-500" />
             <text class="text-15px text-gray-700">关于</text>
           </view>
           <view class="i-carbon-chevron-right text-16px text-gray-300" />
         </view>
-        <view v-if="hasLogin" class="settings-item settings-item--danger" @click="handleLogout">
+        <view v-if="hasLogin" class="flex items-center justify-between border-t border-#fff1f1 py-16px active:opacity-70" @click="handleLogout">
           <view class="flex items-center gap-3">
             <view class="i-carbon-logout text-18px text-red-400" />
             <text class="text-15px text-red-400">退出登录</text>
@@ -778,277 +709,29 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
 </template>
 
 <style lang="scss" scoped>
-.me-page {
-  min-height: 100vh;
-  background: #f5f5f5;
-  padding-bottom: calc(60px + env(safe-area-inset-bottom));
-}
-
-.header {
-  position: relative;
-}
-
-.header-bg {
-  height: 200px;
-  background: linear-gradient(135deg, #ff6633 0%, #ff8c42 100%);
-  padding-top: env(safe-area-inset-top);
-}
-
-.user-section {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 0 20px;
-  margin-top: -120px;
-  position: relative;
-  z-index: 10;
-}
-
-.avatar {
-  width: 68px;
-  height: 68px;
-  border-radius: 50%;
+.me-avatar {
   border: 3px solid #fff;
+  border-radius: 999px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
-.user-info {
-  flex: 1;
-}
-
-.login-pill {
+.me-login-pill {
   padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.18);
+  font-size: 13px;
   color: #fff;
-  font-size: 13px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
 }
 
-.stats-row {
-  display: flex;
-  margin: 16px 12px 0;
-  padding: 16px 0;
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  position: relative;
-  z-index: 10;
-}
-
-.stat-item {
-  flex: 1;
-  text-align: center;
-}
-
-.menu-card {
-  margin: 12px;
-  background: #fff;
-  border-radius: 12px;
-  padding: 0 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-}
-
-.menu-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 0;
-  border-bottom: 1px solid #f5f5f5;
-
-  &--last {
-    border-bottom: none;
-  }
-
-  &:active {
-    opacity: 0.7;
-  }
-}
-
-.settings-item--danger {
-  border-top: 1px solid #fff1f1;
-}
-
-.expand-card {
-  margin: 0 12px 12px;
-  background: #fff;
-  border-radius: 12px;
-  padding: 8px 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-}
-
-.expand-item {
-  display: flex;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid #f8f8f8;
-
-  &:last-child {
-    border-bottom: none;
-  }
-
-  &:active {
-    opacity: 0.7;
-  }
-}
-
-/* 弹窗 */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.modal-content {
-  width: 80%;
-  background: #fff;
-  border-radius: 16px;
-  padding: 24px;
-}
-
-.edit-input {
-  margin-top: 8px;
-  padding: 10px 14px;
-  background: #f5f5f5;
-  border-radius: 10px;
-  font-size: 14px;
-  color: #333;
-}
-
-.modal-btn {
-  flex: 1;
-  text-align: center;
-  padding: 12px 0;
-  border-radius: 10px;
-  font-size: 15px;
-
-  &--cancel {
-    background: #f5f5f5;
-    color: #666;
-  }
-
-  &--confirm {
-    background: #ff6633;
-    color: #fff;
-  }
-
-  &:active {
-    opacity: 0.8;
-  }
-}
-
-/* 设置面板 */
-.settings-panel {
-  width: 80%;
-  background: #fff;
-  border-radius: 16px;
-  padding: 20px;
-}
-
-.settings-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 0;
-  border-bottom: 1px solid #f5f5f5;
-
-  &:last-child {
-    border-bottom: none;
-  }
-
-  &:active {
-    opacity: 0.7;
-  }
-}
-
-.settings-item--column {
-  display: block;
-}
-
-.provider-switches {
-  display: flex;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.provider-chip {
+.map-provider-chip {
   min-width: 88px;
-  text-align: center;
   padding: 8px 14px;
-  border-radius: 999px;
   border: 1px solid #e5e7eb;
+  border-radius: 999px;
   background: #f9fafb;
+  font-size: 13px;
   color: #6b7280;
-  font-size: 13px;
-
-  &--active {
-    background: #fff4ed;
-    border-color: #ff8c42;
-    color: #ea580c;
-  }
-}
-
-.truncate {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.review-item {
-  padding: 12px 0;
-  border-bottom: 1px solid #f8f8f8;
-
-  &:last-child {
-    border-bottom: none;
-  }
-}
-
-.note-item {
-  padding: 12px 0;
-  border-bottom: 1px solid #f8f8f8;
-
-  &:last-child {
-    border-bottom: none;
-  }
-}
-
-/* 提醒分组头部，用来在长列表里快速区分提醒来源。 */
-.notification-group {
-  & + & {
-    margin-top: 8px;
-  }
-}
-
-.notification-group__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 0 4px;
-}
-
-.notification-group__title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #374151;
-}
-
-.notification-group__count {
-  font-size: 11px;
-  color: #9ca3af;
-}
-
-.line-clamp-2 {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  text-align: center;
 }
 </style>

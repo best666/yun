@@ -29,6 +29,9 @@ import openDevTools from './scripts/open-dev-tools'
 import { createCopyNativeResourcesPlugin } from './vite-plugins/copy-native-resources'
 import syncManifestPlugin from './vite-plugins/sync-manifest-plugins'
 
+process.env.SASS_QUIET_DEPS ??= 'true'
+process.env.SASS_SILENCE_DEPRECATIONS ??= 'mixed-decls'
+
 // https://vitejs.dev/config/
 export default defineConfig(({ command, mode }) => {
   // @see https://unocss.dev/
@@ -166,6 +169,12 @@ export default defineConfig(({ command, mode }) => {
       __VITE_APP_PROXY__: JSON.stringify(VITE_APP_PROXY_ENABLE),
     },
     css: {
+      preprocessorOptions: {
+        scss: {
+          quietDeps: true,
+          silenceDeprecations: ['mixed-decls'],
+        },
+      },
       postcss: {
         plugins: [
           // autoprefixer({

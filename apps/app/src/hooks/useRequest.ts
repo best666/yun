@@ -1,18 +1,34 @@
 import type { Ref } from 'vue'
 import { ref } from 'vue'
 
-interface IUseRequestOptions<T> {
+interface IUseRequestOptions<T, P = undefined> {
   /** 是否立即执行 */
   immediate?: boolean
   /** 初始化数据 */
   initialData?: T
+  /** 立即执行时传入的参数 */
+  immediateArgs?: P
+  /** 请求成功后的副作用 */
+  onSuccess?: (data: T) => void
+  /** 请求失败后的副作用 */
+  onError?: (error: Error) => void
 }
 
 interface IUseRequestReturn<T, P = undefined> {
   loading: Ref<boolean>
-  error: Ref<boolean | Error>
+  error: Ref<Error | null>
   data: Ref<T | undefined>
   run: (args?: P) => Promise<T | undefined>
+  reset: () => void
+}
+
+/** 统一把 unknown 异常收口成 Error，避免页面处理多种错误形态。 */
+function normalizeRequestError(error: unknown) {
+  if (error instanceof Error) {
+    return error
+  }
+
+  return new Error(typeof error === 'string' ? error : '请求失败')
 }
 
 /**
@@ -25,30 +41,42 @@ interface IUseRequestReturn<T, P = undefined> {
  */
 export default function useRequest<T, P = undefined>(
   func: (args?: P) => Promise<T>,
-  options: IUseRequestOptions<T> = { immediate: false },
+  options: IUseRequestOptions<T, P> = {},
 ): IUseRequestReturn<T, P> {
   const loading = ref(false)
-  const error = ref(false)
+  const error = ref<Error | null>(null)
   const data = ref<T | undefined>(options.initialData) as Ref<T | undefined>
+
+  const reset = () => {
+    loading.value = false
+    error.value = null
+    data.value = options.initialData
+  }
+
   const run = async (args?: P) => {
     loading.value = true
-    return func(args)
-      .then((res) => {
-        data.value = res
-        error.value = false
-        return data.value
-      })
-      .catch((err) => {
-        error.value = err
-        throw err
-      })
-      .finally(() => {
-        loading.value = false
-      })
+    error.value = null
+
+    try {
+      const responseData = await func(args)
+      data.value = responseData
+      options.onSuccess?.(responseData)
+      return responseData
+    }
+    catch (caughtError) {
+      const normalizedError = normalizeRequestError(caughtError)
+      error.value = normalizedError
+      options.onError?.(normalizedError)
+      throw normalizedError
+    }
+    finally {
+      loading.value = false
+    }
   }
 
   if (options.immediate) {
-    (run as (args: P) => Promise<T | undefined>)({} as P)
+    void run(options.immediateArgs).catch(() => undefined)
   }
-  return { loading, error, data, run }
+
+  return { loading, error, data, run, reset }
 }

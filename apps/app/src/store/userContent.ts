@@ -155,7 +155,4 @@ export const useUserContentStore = defineStore(
       notificationCount,
     }
   },
-  {
-    persist: true,
-  },
 )

@@ -19,7 +19,7 @@ export default defineConfig({
     }),
     presetIcons({
       scale: 1.2,
-      warn: true,
+      warn: false,
       extraProperties: {
         'display': 'inline-block',
         'vertical-align': 'middle',
@@ -69,7 +69,10 @@ export default defineConfig({
   ],
   shortcuts: [
     {
-      center: 'flex justify-center items-center',
+      'center': 'flex justify-center items-center',
+      'auth-card': 'border border-[rgba(255,127,59,0.08)] rounded-20px bg-[rgba(255,255,255,0.92)] shadow-[0_16px_40px_rgba(255,102,51,0.08)] backdrop-blur-[10px]',
+      'auth-primary-btn': 'mt-14px flex h-46px items-center justify-center rounded-14px border-none bg-[linear-gradient(135deg,#ff6a3d_0%,#ff8a47_100%)] text-15px text-white',
+      'auth-input': 'mt-14px box-border h-46px w-full rounded-14px border border-[rgba(255,127,59,0.14)] bg-#fff8f4 px-14px text-14px text-#2b211c',
     },
   ],
   // 动态图标需要在这里配置，或者写在vue页面中注释掉

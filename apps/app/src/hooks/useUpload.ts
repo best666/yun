@@ -1,22 +1,56 @@
+import type { Ref } from 'vue'
 import { ref } from 'vue'
 import { getEnvBaseUrl } from '@/utils/index'
+import { formatMaxSizeText, getFileExtension, isAcceptedFile, isUploadCancelled, normalizeUploadError, parseUploadResponseData } from '@/utils/uploadShared'
 
 const VITE_UPLOAD_BASEURL = `${getEnvBaseUrl()}/upload`
 
-type TfileType = 'image' | 'file'
+type TFileType = 'image' | 'file'
 type TImage = 'png' | 'jpg' | 'jpeg' | 'webp' | '*'
 type TFile = 'doc' | 'docx' | 'ppt' | 'zip' | 'xls' | 'xlsx' | 'txt' | TImage
 
-interface TOptions<T extends TfileType> {
+interface SelectedUploadFile {
+  tempFilePath: string
+  size: number
+  name?: string
+}
+
+interface TOptions<T extends TFileType, TResult = unknown> {
   formData?: Record<string, any>
   maxSize?: number
   accept?: T extends 'image' ? TImage[] : TFile[]
   fileType?: T
-  success?: (params: any) => void
-  error?: (err: any) => void
+  success?: (params: TResult) => void
+  error?: (err: Error) => void
 }
 
-export default function useUpload<T extends TfileType>(options: TOptions<T> = {} as TOptions<T>) {
+/** 统一提取各平台选择结果中的首个文件，避免平台差异泄漏给页面。 */
+function resolveSelectedFile(result: any): SelectedUploadFile | null {
+  // #ifdef MP-WEIXIN
+  const miniProgramFile = result?.tempFiles?.[0]
+  if (miniProgramFile?.tempFilePath) {
+    return {
+      tempFilePath: miniProgramFile.tempFilePath,
+      size: miniProgramFile.size || 0,
+      name: miniProgramFile.name,
+    }
+  }
+  // #endif
+
+  const genericTempFile = result?.tempFiles?.[0]
+  const genericTempFilePath = result?.tempFilePaths?.[0]
+  if (!genericTempFilePath) {
+    return null
+  }
+
+  return {
+    tempFilePath: genericTempFilePath,
+    size: genericTempFile?.size || 0,
+    name: genericTempFile?.name,
+  }
+}
+
+export default function useUpload<T extends TFileType, TResult = unknown>(options: TOptions<T, TResult> = {} as TOptions<T, TResult>) {
   const {
     formData = {},
     maxSize = 5 * 1024 * 1024,
@@ -28,52 +62,60 @@ export default function useUpload<T extends TfileType>(options: TOptions<T> = {}
 
   const loading = ref(false)
   const error = ref<Error | null>(null)
-  const data = ref<any>(null)
+  const data = ref<TResult | null>(null) as Ref<TResult | null>
 
-  const handleFileChoose = ({ tempFilePath, size }: { tempFilePath: string, size: number }) => {
-    if (size > maxSize) {
+  const resetUploadState = () => {
+    loading.value = false
+    error.value = null
+  }
+
+  const validateSelectedFile = (selectedFile: SelectedUploadFile) => {
+    if (selectedFile.size > maxSize) {
       uni.showToast({
-        title: `文件大小不能超过 ${maxSize / 1024 / 1024}MB`,
+        title: `文件大小不能超过 ${formatMaxSizeText(maxSize)}`,
         icon: 'none',
       })
+      return false
+    }
+
+    const fileExtension = getFileExtension(selectedFile.tempFilePath, selectedFile.name)
+    if (!isAcceptedFile(fileExtension, accept as string[])) {
+      uni.showToast({
+        title: `仅支持 ${accept.join(', ')} 格式的文件`,
+        icon: 'none',
+      })
+      return false
+    }
+
+    return true
+  }
+
+  const handleFileChoose = (selectedFile: SelectedUploadFile | null) => {
+    if (!selectedFile) {
+      const resolveError = new Error('未获取到可上传的文件')
+      error.value = resolveError
+      onError?.(resolveError)
       return
     }
 
-    // const fileExtension = file?.tempFiles?.name?.split('.').pop()?.toLowerCase()
-    // const isTypeValid = accept.some((type) => type === '*' || type.toLowerCase() === fileExtension)
+    if (!validateSelectedFile(selectedFile)) {
+      return
+    }
 
-    // if (!isTypeValid) {
-    //   uni.showToast({
-    //     title: `仅支持 ${accept.join(', ')} 格式的文件`,
-    //     icon: 'none',
-    //   })
-    //   return
-    // }
-
+    error.value = null
     loading.value = true
     uploadFile({
-      tempFilePath,
+      tempFilePath: selectedFile.tempFilePath,
       formData,
       onSuccess: (res) => {
-        // 修改这里的解析逻辑，适应不同平台的返回格式
-        let parsedData = res
-        try {
-          // 尝试解析为JSON
-          const jsonData = JSON.parse(res)
-          // 检查是否包含data字段
-          parsedData = jsonData.data || jsonData
-        }
-        catch (e) {
-          // 如果解析失败，使用原始数据
-          console.log('Response is not JSON, using raw data:', res)
-        }
+        const parsedData = parseUploadResponseData<TResult>(res)
         data.value = parsedData
-        // console.log('上传成功', res)
         success?.(parsedData)
       },
-      onError: (err) => {
-        error.value = err
-        onError?.(err)
+      onError: (caughtError) => {
+        const normalizedError = normalizeUploadError(caughtError)
+        error.value = normalizedError
+        onError?.(normalizedError)
       },
       onComplete: () => {
         loading.value = false
@@ -87,28 +129,16 @@ export default function useUpload<T extends TfileType>(options: TOptions<T> = {}
     const chooseFileOptions = {
       count: 1,
       success: (res: any) => {
-        console.log('File selected successfully:', res)
-        // 小程序中res:{errMsg: "chooseImage:ok", tempFiles: [{fileType: "image", size: 48976, tempFilePath: "http://tmp/5iG1WpIxTaJf3ece38692a337dc06df7eb69ecb49c6b.jpeg"}]}
-        // h5中res:{errMsg: "chooseImage:ok", tempFilePaths: "blob:http://localhost:9000/f74ab6b8-a14d-4cb6-a10d-fcf4511a0de5", tempFiles: [File]}
-        // h5的File有以下字段：{name: "girl.jpeg", size: 48976, type: "image/jpeg"}
-        // App中res:{errMsg: "chooseImage:ok", tempFilePaths: "file:///Users/feige/xxx/gallery/1522437259-compressed-IMG_0006.jpg", tempFiles: [File]}
-        // App的File有以下字段：{path: "file:///Users/feige/xxx/gallery/1522437259-compressed-IMG_0006.jpg", size: 48976}
-        let tempFilePath = ''
-        let size = 0
-        // #ifdef MP-WEIXIN
-        tempFilePath = res.tempFiles[0].tempFilePath
-        size = res.tempFiles[0].size
-        // #endif
-        // #ifndef MP-WEIXIN
-        tempFilePath = res.tempFilePaths[0]
-        size = res.tempFiles[0].size
-        // #endif
-        handleFileChoose({ tempFilePath, size })
+        handleFileChoose(resolveSelectedFile(res))
       },
-      fail: (err: any) => {
-        console.error('File selection failed:', err)
-        error.value = err
-        onError?.(err)
+      fail: (caughtError: unknown) => {
+        if (isUploadCancelled(caughtError)) {
+          return
+        }
+
+        const normalizedError = normalizeUploadError(caughtError)
+        error.value = normalizedError
+        onError?.(normalizedError)
       },
     }
 
@@ -132,7 +162,7 @@ export default function useUpload<T extends TfileType>(options: TOptions<T> = {}
     }
   }
 
-  return { loading, error, data, run }
+  return { loading, error, data, run, resetUploadState }
 }
 
 async function uploadFile({

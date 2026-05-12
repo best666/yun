@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Post, Query, Res } from '@nestjs/common';
-import type { Response } from 'express';
+import { Body, Controller, Get, Header, Post, Query, Redirect } from '@nestjs/common';
 import { ok } from '@/common/api-response';
 import { ExchangeOauthTicketDto } from './dto/exchange-oauth-ticket.dto';
+import { OauthAuthorizeQueryDto } from './dto/oauth-authorize-query.dto';
+import { OauthCallbackQueryDto } from './dto/oauth-callback-query.dto';
 import { SendSmsCodeDto } from './dto/send-sms-code.dto';
 import { SmsLoginDto } from './dto/sms-login.dto';
 import { WxLoginDto } from './dto/wx-login.dto';
@@ -30,35 +31,33 @@ export class AuthController {
   }
 
   @Get('oauth/wechat/authorize')
-  async getWeChatAuthorizeUrl(@Query('origin') origin = '', @Res() response: Response) {
-    const url = await this.authService.buildOauthAuthorizeUrl('wechat', origin);
-    response.redirect(url);
+  @Redirect()
+  async getWeChatAuthorizeUrl(@Query() query: OauthAuthorizeQueryDto) {
+    const url = await this.authService.buildOauthAuthorizeUrl('wechat', query.origin);
+    return { url };
   }
 
   @Get('oauth/douyin/authorize')
-  async getDouyinAuthorizeUrl(@Query('origin') origin = '', @Res() response: Response) {
-    const url = await this.authService.buildOauthAuthorizeUrl('douyin', origin);
-    response.redirect(url);
+  @Redirect()
+  async getDouyinAuthorizeUrl(@Query() query: OauthAuthorizeQueryDto) {
+    const url = await this.authService.buildOauthAuthorizeUrl('douyin', query.origin);
+    return { url };
   }
 
   @Get('oauth/wechat/callback')
+  @Header('Content-Type', 'text/html; charset=utf-8')
   async handleWeChatCallback(
-    @Query('code') code: string,
-    @Query('state') state: string,
-    @Res() response: Response,
+    @Query() query: OauthCallbackQueryDto,
   ) {
-    const html = await this.authService.handleOauthCallback('wechat', code, state);
-    response.type('html').send(html);
+    return this.authService.handleOauthCallback('wechat', query.code, query.state);
   }
 
   @Get('oauth/douyin/callback')
+  @Header('Content-Type', 'text/html; charset=utf-8')
   async handleDouyinCallback(
-    @Query('code') code: string,
-    @Query('state') state: string,
-    @Res() response: Response,
+    @Query() query: OauthCallbackQueryDto,
   ) {
-    const html = await this.authService.handleOauthCallback('douyin', code, state);
-    response.type('html').send(html);
+    return this.authService.handleOauthCallback('douyin', query.code, query.state);
   }
 
   @Post('oauth/exchange')

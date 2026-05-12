@@ -126,7 +126,6 @@ export const useTokenStore = defineStore(
     const login = async (loginForm: ILoginForm) => {
       try {
         const res = await _login(loginForm)
-        console.log('普通登录-res: ', res)
         await _postLogin(res)
         uni.showToast({
           title: '登录成功',
@@ -155,11 +154,8 @@ export const useTokenStore = defineStore(
      */
     const wxLogin = async () => {
       try {
-        // 获取微信小程序登录的code
         const loginRes = await getWxCode()
-        console.log('微信登录-code: ', loginRes)
         const res = await _wxLogin({ code: loginRes.code })
-        console.log('微信登录-res: ', res)
         await _postLogin(res)
         uni.showToast({
           title: '登录成功',
@@ -217,11 +213,8 @@ export const useTokenStore = defineStore(
       finally {
         updateNowTime()
 
-        // 无论成功失败，都需要清除本地token信息
-        // 清除存储的过期时间
         uni.removeStorageSync('accessTokenExpireTime')
         uni.removeStorageSync('refreshTokenExpireTime')
-        console.log('退出登录-清除用户信息')
         tokenInfo.value = { ...tokenInfoState }
         uni.removeStorageSync('token')
         uni.removeStorageSync('favorite')
@@ -248,7 +241,6 @@ export const useTokenStore = defineStore(
 
         const refreshToken = tokenInfo.value.refreshToken
         const res = await _refreshToken(refreshToken)
-        console.log('刷新token-res: ', res)
         setTokenInfo(res)
         return res
       }
@@ -301,7 +293,6 @@ export const useTokenStore = defineStore(
      * 建议这样使用tokenStore.updateNowTime().hasLogin
      */
     const hasValidLogin = computed(() => {
-      console.log('hasValidLogin', hasLoginInfo.value, !isTokenExpired.value)
       return hasLoginInfo.value && !isTokenExpired.value
     })
 
