@@ -1,9 +1,14 @@
 <script lang="ts" setup>
 import type { FavoriteSpotSummary, ISpotInteractionNotificationItem } from '@/api/types/spot'
-import type { SpotDetail } from '@/store/spot'
-import { useFavoriteStore, useFootprintStore, useMapSettingStore, useSpotStore, useTokenStore, useUserContentStore, useUserStore } from '@/store'
+import { getSpotDetail } from '@/api/spot'
+import { useFavoriteStore, useFootprintStore, useMapSettingStore, useTokenStore, useUserContentStore, useUserStore } from '@/store'
 import { buildSpotDetailUrlFromFavorite } from '@/utils/spotDetail'
 import { toLoginPage } from '@/utils/toLoginPage'
+
+/** 足迹地点展示项，基于真实详情摘要组装，避免继续依赖本地假点位。 */
+interface FootprintSpotSummary extends FavoriteSpotSummary {
+  viewedAt: string
+}
 
 definePage({
   style: {
@@ -17,12 +22,15 @@ definePage({
 })
 
 const favoriteStore = useFavoriteStore()
-const spotStore = useSpotStore()
 const footprintStore = useFootprintStore()
 const userContentStore = useUserContentStore()
 const tokenStore = useTokenStore()
 const authUserStore = useUserStore()
 const mapSettingStore = useMapSettingStore()
+/** 足迹详情摘要列表，来源于真实地点详情接口。 */
+const footprintSpots = ref<FootprintSpotSummary[]>([])
+/** 足迹摘要加载态，避免用户展开时看到空白闪烁。 */
+const isLoadingFootprints = ref(false)
 
 const guestUserInfo = reactive({
   nickname: '美食探索者',
@@ -47,6 +55,8 @@ const displayUserInfo = computed(() => {
 })
 
 onShow(async () => {
+  await syncFootprintSpots()
+
   if (hasLogin.value && authUserStore.userInfo.userId < 0) {
     await authUserStore.fetchUserInfo()
   }
@@ -115,13 +125,6 @@ async function handleLoginOrProfile() {
 /** 收藏的地点列表 */
 const favoriteSpots = computed(() => {
   return favoriteStore.favoriteSummaries
-})
-
-/** 足迹地点列表 */
-const footprintSpots = computed(() => {
-  return footprintStore.footprintIds
-    .map(id => spotStore.getSpotById(id))
-    .filter(Boolean) as SpotDetail[]
 })
 
 /** 统计 - 从实际数据获取 */
@@ -209,9 +212,76 @@ const navigationMapOptions = [
   { label: '高德地图', value: 'amap' },
 ] as const
 
+/** 同步足迹对应的真实地点摘要，避免我的页继续依赖本地空 store。 */
+async function syncFootprintSpots() {
+  const footprintRecords = [...footprintStore.footprints]
+
+  if (footprintRecords.length === 0) {
+    footprintSpots.value = []
+    return
+  }
+
+  isLoadingFootprints.value = true
+
+  try {
+    const spotSummaries = await Promise.all(
+      footprintRecords.map(async (record) => {
+        try {
+          const detail = await getSpotDetail({ id: String(record.spotId) })
+
+          return {
+            id: detail.id,
+            name: detail.name,
+            cover: detail.cover,
+            address: detail.address,
+            rating: detail.rating,
+            avgPrice: detail.avgPrice,
+            latitude: detail.latitude,
+            longitude: detail.longitude,
+            viewedAt: record.time,
+          } satisfies FootprintSpotSummary
+        }
+        catch (error) {
+          console.error(`加载足迹地点失败: ${record.spotId}`, error)
+          return null
+        }
+      }),
+    )
+
+    footprintSpots.value = spotSummaries.filter(Boolean) as FootprintSpotSummary[]
+  }
+  finally {
+    isLoadingFootprints.value = false
+  }
+}
+
+/** 将足迹时间格式化为更易读的本地时间，方便用户判断最近浏览记录。 */
+function formatDateTime(value: string) {
+  if (!value) {
+    return '--'
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return '--'
+  }
+
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  const hours = `${date.getHours()}`.padStart(2, '0')
+  const minutes = `${date.getMinutes()}`.padStart(2, '0')
+
+  return `${year}-${month}-${day} ${hours}:${minutes}`
+}
+
 function onMenuTap(item: MenuItem) {
   if (item.action === 'favorites' || item.action === 'footprint' || item.action === 'reviews' || item.action === 'notes' || item.action === 'discussions' || item.action === 'liked-notes' || item.action === 'questions' || item.action === 'notifications') {
     expandedAction.value = expandedAction.value === item.action ? '' : item.action
+
+    if (item.action === 'footprint' && expandedAction.value === 'footprint') {
+      void syncFootprintSpots()
+    }
 
     if (item.action === 'notifications' && expandedAction.value === 'notifications') {
       void userContentStore.markNotificationsRead()
@@ -446,10 +516,13 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
 
     <!-- 足迹列表展开 -->
     <view v-if="expandedAction === 'footprint'" class="expand-card">
-      <view v-if="footprintSpots.length === 0" class="py-8 text-center text-13px text-gray-400">
+      <view v-if="isLoadingFootprints" class="py-8 text-center text-13px text-gray-400">
+        正在加载浏览记录...
+      </view>
+      <view v-else-if="footprintSpots.length === 0" class="py-8 text-center text-13px text-gray-400">
         还没有浏览记录
       </view>
-      <view v-for="spot in footprintSpots" :key="spot.id" class="expand-item" @click="goSpotDetail(spot.id)">
+      <view v-for="spot in footprintSpots" v-else :key="`${spot.id}-${spot.viewedAt}`" class="expand-item" @click="goSpotDetail(spot)">
         <image :src="spot.cover" class="h-60px w-60px flex-shrink-0 rounded-10px" mode="aspectFill" />
         <view class="ml-3 min-w-0 flex-1">
           <view class="truncate text-14px text-gray-800 font-medium">
@@ -461,6 +534,9 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
           </view>
           <view class="mt-0.5 truncate text-12px text-gray-400">
             {{ spot.address }}
+          </view>
+          <view class="mt-0.5 text-11px text-gray-300">
+            浏览于 {{ formatDateTime(spot.viewedAt) }}
           </view>
         </view>
       </view>

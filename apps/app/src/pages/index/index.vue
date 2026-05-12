@@ -1,13 +1,11 @@
 <script lang="ts" setup>
 import type { IMapSearchPlaceItem, MapApiProvider } from '@/api/types/map'
 import type { ISearchUserItem } from '@/api/types/search'
-import type { FoodSpot } from '@/store/spot'
 import { searchUsers } from '@/api/login'
 import { searchMapPlaces } from '@/api/map'
 import { getSpotDetail } from '@/api/spot'
-import { useFavoriteStore, useSpotStore } from '@/store'
-import { openNavigationWithPreference } from '@/utils/mapNavigation'
-import { buildSpotDetailUrlFromMapPlace, buildSpotDetailUrlFromSpot, createFavoriteSummaryFromSpot } from '@/utils/spotDetail'
+import { useFavoriteStore } from '@/store'
+import { buildSpotDetailUrlFromMapPlace } from '@/utils/spotDetail'
 
 interface CoordinatePoint {
   latitude: number
@@ -31,11 +29,12 @@ definePage({
   },
 })
 
-const spotStore = useSpotStore()
 const favoriteStore = useFavoriteStore()
 
 const currentMapProvider = getCurrentMapProvider()
 const currentMapProviderLabel = currentMapProvider === 'amap' ? '高德地图' : '腾讯地图'
+/** 首页默认附近检索关键词，用真实 POI 填充地图点位。 */
+const DEFAULT_NEARBY_KEYWORD = '美食'
 
 const DEFAULT_KUNMING_CENTER: CoordinatePoint = {
   latitude: 25.03889,
@@ -67,8 +66,7 @@ const mapCenter = reactive({
 
 const SEARCH_PLACE_MARKER_BASE_ID = 900000
 
-/** 当前选中地点 */
-const selectedSpot = ref<FoodSpot | null>(null)
+/** 当前选中的地图地点。 */
 const selectedMapPlace = ref<IMapSearchPlaceItem | null>(null)
 /** 底部卡片是否显示 */
 const showBottomCard = ref(false)
@@ -76,27 +74,32 @@ const showBottomCard = ref(false)
 /** 搜索相关 */
 const searchKeyword = ref('')
 const showSearchPanel = ref(false)
+/** 主动搜索的地点结果，仅用于搜索态列表和搜索态 marker。 */
 const searchSpotResults = ref<IMapSearchPlaceItem[]>([])
+/** 首页默认附近地点结果，用于无关键词时的地图打点。 */
+const nearbySpotResults = ref<IMapSearchPlaceItem[]>([])
 const searchUserResults = ref<ISearchUserItem[]>([])
 const isSearchingPlaces = ref(false)
 const isSearchingUsers = ref(false)
+/** 附近地点加载态，用于控制首页首次进入时的反馈。 */
+const isLoadingNearbyPlaces = ref(false)
 
 const SEARCH_DEBOUNCE_MS = 300
 
+/** 卡片上下滑判定阈值，避免轻触误触发展开或收起。 */
+const CARD_SWIPE_THRESHOLD = 36
+
 let searchRequestId = 0
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+/** 手势起点 Y 坐标。 */
+const cardTouchStartY = ref(0)
+/** 手势终点 Y 坐标。 */
+const cardTouchEndY = ref(0)
 
-function mapSpotToSearchPlace(spot: FoodSpot): IMapSearchPlaceItem {
-  return {
-    id: `local-${spot.id}`,
-    title: spot.name,
-    address: spot.address,
-    category: spot.tags.join(' / '),
-    district: '',
-    latitude: spot.latitude,
-    longitude: spot.longitude,
-  }
-}
+/** 当前地图上实际展示的地点结果：搜索态优先，默认态退回附近地点。 */
+const displayedMapPlaces = computed(() => {
+  return searchKeyword.value.trim() ? searchSpotResults.value : nearbySpotResults.value
+})
 
 function getSearchPlaceMarkerId(index: number) {
   return SEARCH_PLACE_MARKER_BASE_ID + index
@@ -104,11 +107,11 @@ function getSearchPlaceMarkerId(index: number) {
 
 function findSearchPlaceByMarkerId(markerId: number) {
   const markerIndex = markerId - SEARCH_PLACE_MARKER_BASE_ID
-  if (markerIndex < 0 || markerIndex >= searchSpotResults.value.length) {
+  if (markerIndex < 0 || markerIndex >= displayedMapPlaces.value.length) {
     return null
   }
 
-  return searchSpotResults.value[markerIndex] || null
+  return displayedMapPlaces.value[markerIndex] || null
 }
 
 function setMapCenter(point: CoordinatePoint) {
@@ -140,6 +143,7 @@ function isInYunnan(point: CoordinatePoint) {
   return isPointInPolygon(point, YUNNAN_BOUNDARY)
 }
 
+/** 页面打开时定位并拉取附近真实地点。 */
 function locateOnPageOpen() {
   uni.getLocation({
     type: 'gcj02',
@@ -151,15 +155,40 @@ function locateOnPageOpen() {
 
       if (isInYunnan(currentLocation)) {
         setMapCenter(currentLocation)
+        void fetchNearbyPlaces(currentLocation)
         return
       }
 
       setMapCenter(DEFAULT_KUNMING_CENTER)
+      void fetchNearbyPlaces(DEFAULT_KUNMING_CENTER)
     },
     fail() {
       setMapCenter(DEFAULT_KUNMING_CENTER)
+      void fetchNearbyPlaces(DEFAULT_KUNMING_CENTER)
     },
   })
+}
+
+/** 拉取当前中心点附近真实地点，供首页默认打点使用。 */
+async function fetchNearbyPlaces(center: CoordinatePoint) {
+  isLoadingNearbyPlaces.value = true
+
+  try {
+    nearbySpotResults.value = await searchMapPlaces({
+      keyword: DEFAULT_NEARBY_KEYWORD,
+      latitude: center.latitude,
+      longitude: center.longitude,
+      pageSize: 12,
+      provider: currentMapProvider,
+    })
+  }
+  catch (error) {
+    nearbySpotResults.value = []
+    console.error('加载附近地点失败', error)
+  }
+  finally {
+    isLoadingNearbyPlaces.value = false
+  }
 }
 
 onLoad(() => {
@@ -222,9 +251,9 @@ async function performSearch(keyword: string) {
       searchSpotResults.value = placeResult.value
     }
     else {
-      searchSpotResults.value = spotStore.searchSpots(trimmedKeyword).map(mapSpotToSearchPlace)
+      searchSpotResults.value = []
       uni.showToast({
-        title: `${currentMapProviderLabel}搜索暂不可用，已切换本地地点结果`,
+        title: `${currentMapProviderLabel}搜索暂不可用，请稍后重试`,
         icon: 'none',
       })
       console.error(`${currentMapProviderLabel}地点搜索失败`, placeResult.reason)
@@ -300,8 +329,8 @@ function onSearchConfirm() {
 function onSpotSearchResultTap(place: IMapSearchPlaceItem) {
   showSearchPanel.value = false
   searchKeyword.value = ''
+  searchSpotResults.value = []
   searchUserResults.value = []
-  selectedSpot.value = null
   selectedMapPlace.value = place
   setMapCenter(place)
   showBottomCard.value = true
@@ -327,37 +356,9 @@ function closeSearch() {
   searchRequestId += 1
 }
 
-/** 显示的地点列表 */
-const displaySpots = computed(() => spotStore.allSpots)
-
 /** 地图标记点 - 使用自定义 callout 展示更多信息 */
 const markers = computed(() => {
-  const localMarkers = displaySpots.value.map((spot) => {
-    const isFav = favoriteStore.isFavorited(spot.id)
-    return {
-      id: spot.id,
-      latitude: spot.latitude,
-      longitude: spot.longitude,
-      title: spot.name,
-      iconPath: '/static/marker.png',
-      width: 32,
-      height: 32,
-      callout: {
-        content: `${spot.name}\n★${spot.rating} | ¥${spot.avgPrice}/人${isFav ? ' ❤' : ''}`,
-        color: '#333333',
-        fontSize: 12,
-        textAlign: 'center' as const,
-        borderRadius: 10,
-        padding: 8,
-        display: 'BYCLICK' as const,
-        bgColor: '#ffffff',
-        borderWidth: 1,
-        borderColor: '#ff6633',
-      },
-    }
-  })
-
-  const searchPlaceMarkers = searchSpotResults.value.map((place, index) => {
+  const searchPlaceMarkers = displayedMapPlaces.value.map((place, index) => {
     const isSelected = selectedMapPlace.value?.id === place.id
     return {
       id: getSearchPlaceMarkerId(index),
@@ -382,7 +383,7 @@ const markers = computed(() => {
     }
   })
 
-  return [...localMarkers, ...searchPlaceMarkers]
+  return searchPlaceMarkers
 })
 
 /** 点击地图标记 */
@@ -391,28 +392,11 @@ function onMarkerTap(e: any) {
 
   const searchPlace = findSearchPlaceByMarkerId(markerId)
   if (searchPlace) {
-    selectedSpot.value = null
     selectedMapPlace.value = searchPlace
     setMapCenter(searchPlace)
     showBottomCard.value = true
     return
   }
-
-  const spot = displaySpots.value.find(s => s.id === markerId)
-  if (!spot)
-    return
-
-  if (selectedSpot.value?.id === spot.id && showBottomCard.value) {
-    // 再次点击同一个标记 -> 跳转详情页
-    goDetail(spot)
-    return
-  }
-
-  selectedMapPlace.value = null
-  selectedSpot.value = spot
-  showBottomCard.value = true
-  // 移动地图中心到选中地点
-  setMapCenter(spot)
 }
 
 /** 点击 callout 也跳转详情 */
@@ -421,38 +405,71 @@ function onCalloutTap(e: any) {
 
   const searchPlace = findSearchPlaceByMarkerId(markerId)
   if (searchPlace) {
-    selectedSpot.value = null
     selectedMapPlace.value = searchPlace
     setMapCenter(searchPlace)
     showBottomCard.value = true
     return
   }
-
-  const spot = displaySpots.value.find(s => s.id === markerId)
-  if (spot)
-    goDetail(spot)
 }
 
 /** 点击地图空白处关闭卡片 */
 function onMapTap() {
   if (showBottomCard.value) {
     showBottomCard.value = false
-    selectedSpot.value = null
     selectedMapPlace.value = null
   }
 }
 
-/** 跳转详情页 */
-function goDetail(spot: FoodSpot) {
-  uni.navigateTo({
-    url: buildSpotDetailUrlFromSpot(spot),
-  })
+/** 触摸开始时记录起点，为后续判断上划进详情使用。 */
+function onBottomCardTouchStart(e: any) {
+  cardTouchStartY.value = e.touches?.[0]?.clientY ?? 0
+  cardTouchEndY.value = cardTouchStartY.value
 }
+
+/** 触摸移动时持续更新终点，仅记录坐标，减少中途不必要的状态变更。 */
+function onBottomCardTouchMove(e: any) {
+  cardTouchEndY.value = e.touches?.[0]?.clientY ?? cardTouchEndY.value
+}
+
+/** 触摸结束后，上划直接进入详情页，下划则关闭卡片。 */
+function onBottomCardTouchEnd() {
+  const swipeDistance = cardTouchStartY.value - cardTouchEndY.value
+
+  if (swipeDistance > CARD_SWIPE_THRESHOLD) {
+    openActiveDetailFromCard()
+    return
+  }
+
+  if (swipeDistance < -CARD_SWIPE_THRESHOLD) {
+    showBottomCard.value = false
+    selectedMapPlace.value = null
+  }
+}
+
+/** 地图地点展开后的补充信息，用来统一渲染卡片扩展区。 */
+const selectedMapPlaceMeta = computed(() => {
+  if (!selectedMapPlace.value) {
+    return [] as string[]
+  }
+
+  return [
+    selectedMapPlace.value.category || '地图地点',
+    selectedMapPlace.value.district || '',
+    selectedMapPlace.value.distance ? `距离 ${formatDistance(selectedMapPlace.value.distance)}` : '',
+  ].filter(Boolean)
+})
 
 function goMapPlaceDetail(place: IMapSearchPlaceItem) {
   uni.navigateTo({
-    url: buildSpotDetailUrlFromMapPlace(place, currentMapProvider),
+    url: `${buildSpotDetailUrlFromMapPlace(place, currentMapProvider)}&source=map`,
   })
+}
+
+/** 根据当前卡片内容跳转详情页，让上划和按钮点击走同一条链路。 */
+function openActiveDetailFromCard() {
+  if (selectedMapPlace.value) {
+    goMapPlaceDetail(selectedMapPlace.value)
+  }
 }
 
 function openMapPlaceLocation() {
@@ -466,19 +483,6 @@ function openMapPlaceLocation() {
     name: selectedMapPlace.value.title,
     address: selectedMapPlace.value.address,
   })
-}
-
-async function openSelectedSpotNavigation() {
-  if (!selectedSpot.value) {
-    return
-  }
-
-  await openNavigationWithPreference({
-    latitude: selectedSpot.value.latitude,
-    longitude: selectedSpot.value.longitude,
-    name: selectedSpot.value.name,
-    address: selectedSpot.value.address,
-  }, 'ask')
 }
 
 async function toggleSelectedMapPlaceFavorite() {
@@ -529,34 +533,18 @@ async function toggleSelectedMapPlaceFavorite() {
   }
 }
 
-/** 卡片内收藏切换 */
-async function onCardFavorite(spotId: number) {
-  const spot = displaySpots.value.find(item => item.id === spotId)
-  if (!spot) {
-    return
-  }
-
-  try {
-    const result = await favoriteStore.toggleFavorite(createFavoriteSummaryFromSpot(spot))
-    uni.showToast({
-      title: result.favorited ? '已收藏' : '已取消收藏',
-      icon: 'none',
-    })
-  }
-  catch (error) {
-    console.error('切换收藏失败', error)
-  }
-}
-
 /** 重定位到当前位置 */
 function relocate() {
   uni.getLocation({
     type: 'gcj02',
     success(res) {
-      setMapCenter({
+      const currentLocation = {
         latitude: res.latitude,
         longitude: res.longitude,
-      })
+      }
+
+      setMapCenter(currentLocation)
+      void fetchNearbyPlaces(currentLocation)
     },
     fail() {
       uni.showToast({ title: '定位失败', icon: 'none' })
@@ -675,69 +663,22 @@ function relocate() {
       <view class="i-carbon-location-current text-20px text-gray-600" />
     </view>
 
+    <view v-if="isLoadingNearbyPlaces && !showSearchPanel" class="nearby-loading-tip">
+      正在加载附近地点...
+    </view>
+
     <!-- 底部弹出卡片 -->
     <view class="bottom-card" :class="{ 'bottom-card--show': showBottomCard }">
-      <view v-if="selectedSpot" class="card-content">
-        <!-- 拖动条 -->
+      <view
+        v-if="selectedMapPlace"
+        class="card-content"
+        @touchstart="onBottomCardTouchStart"
+        @touchmove="onBottomCardTouchMove"
+        @touchend="onBottomCardTouchEnd"
+      >
         <view class="drag-bar" />
 
-        <view class="flex gap-3" @click="goDetail(selectedSpot)">
-          <!-- 封面 -->
-          <image :src="selectedSpot.cover" class="h-80px w-80px flex-shrink-0 rounded-12px" mode="aspectFill" />
-          <!-- 信息 -->
-          <view class="min-w-0 flex-1">
-            <view class="truncate text-16px text-gray-900 font-bold">
-              {{ selectedSpot.name }}
-            </view>
-            <view class="mt-1 flex items-center gap-1">
-              <view class="i-carbon-star-filled text-14px text-yellow-500" />
-              <text class="text-14px text-yellow-600">{{ selectedSpot.rating }}</text>
-              <text class="ml-2 text-12px text-gray-400">人均 ¥{{ selectedSpot.avgPrice }}</text>
-            </view>
-            <view class="mt-1 truncate text-12px text-gray-500">
-              <view class="i-carbon-location mr-1 inline-block align-middle text-12px" />
-              {{ selectedSpot.address }}
-            </view>
-            <view class="mt-2 flex gap-1">
-              <view
-                v-for="tag in selectedSpot.tags" :key="tag"
-                class="rounded-full bg-orange-50 px-2 py-0.5 text-11px text-orange-500"
-              >
-                {{ tag }}
-              </view>
-            </view>
-          </view>
-        </view>
-
-        <!-- 卡片底部操作栏 -->
-        <view class="card-actions">
-          <view class="card-action-btn" @click.stop="onCardFavorite(selectedSpot.id)">
-            <view
-              :class="favoriteStore.isFavorited(selectedSpot.id) ? 'i-carbon-favorite-filled text-red-500' : 'i-carbon-favorite text-gray-400'"
-              class="text-18px"
-            />
-            <text
-              class="text-11px"
-              :class="favoriteStore.isFavorited(selectedSpot.id) ? 'text-red-500' : 'text-gray-400'"
-            >
-              {{ favoriteStore.isFavorited(selectedSpot.id) ? '已收藏' : '收藏' }}
-            </text>
-          </view>
-          <view class="card-action-btn" @click="goDetail(selectedSpot)">
-            <view class="i-carbon-view text-18px text-orange-500" />
-            <text class="text-11px text-orange-500">查看详情</text>
-          </view>
-          <view class="card-action-btn" @click.stop="openSelectedSpotNavigation">
-            <view class="i-carbon-navigation text-18px text-blue-500" />
-            <text class="text-11px text-blue-500">导航</text>
-          </view>
-        </view>
-      </view>
-
-      <view v-else-if="selectedMapPlace" class="card-content">
-        <view class="drag-bar" />
-
-        <view class="flex gap-3">
+        <view class="flex gap-3" @click="goMapPlaceDetail(selectedMapPlace)">
           <view class="search-place-card-avatar">
             <view class="i-carbon-location-filled text-24px text-blue-500" />
           </view>
@@ -753,6 +694,12 @@ function relocate() {
               {{ selectedMapPlace.district }}{{ selectedMapPlace.address }}
             </view>
           </view>
+        </view>
+
+        <view class="card-expanded-meta card-expanded-meta--inline">
+          <text v-for="meta in selectedMapPlaceMeta" :key="meta" class="card-expanded-meta__item">
+            {{ meta }}
+          </text>
         </view>
 
         <view class="card-actions">
@@ -774,7 +721,7 @@ function relocate() {
           </view>
           <view class="card-action-btn" @click.stop="openMapPlaceLocation">
             <view class="i-carbon-navigation text-18px text-blue-500" />
-            <text class="text-11px text-blue-500">路线导航</text>
+            <text class="text-11px text-blue-500">路线</text>
           </view>
         </view>
       </view>
@@ -935,6 +882,19 @@ function relocate() {
   }
 }
 
+.nearby-loading-tip {
+  position: fixed;
+  left: 50%;
+  bottom: calc(222px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.74);
+  color: #fff;
+  font-size: 12px;
+  z-index: 110;
+}
+
 .bottom-card {
   position: fixed;
   left: 0;
@@ -956,6 +916,7 @@ function relocate() {
   background: #fff;
   border-radius: 16px;
   box-shadow: 0 -2px 20px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
 }
 
 .drag-bar {
@@ -972,6 +933,29 @@ function relocate() {
   padding-top: 12px;
   border-top: 1px solid #f0f0f0;
   justify-content: space-around;
+}
+
+.card-expanded-tags,
+.card-expanded-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.card-expanded-meta--inline {
+  margin-top: 12px;
+}
+
+.card-expanded-tag,
+.card-expanded-meta__item {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fff7ed;
+  font-size: 11px;
+  color: #ea580c;
 }
 
 .card-action-btn {
