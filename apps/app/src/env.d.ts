@@ -45,6 +45,8 @@ interface ImportMetaEnv {
   readonly VITE_AUTH_MODE: 'single' | 'double'
   /** 是否清除console */
   readonly VITE_DELETE_CONSOLE: string
+  /** 是否开启 rollup visualizer 打包分析 */
+  readonly VITE_VISUALIZER_ENABLE: 'true' | 'false'
   // 更多环境变量...
 }
 

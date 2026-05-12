@@ -18,6 +18,7 @@ import UniPlatform from '@uni-helper/vite-plugin-uni-platform'
 import UniOptimization from '@uni-ku/bundle-optimizer'
 // https://github.com/uni-ku/root
 import UniKuRoot from '@uni-ku/root'
+import { codeInspectorPlugin } from 'code-inspector-plugin'
 import dayjs from 'dayjs'
 import { visualizer } from 'rollup-plugin-visualizer'
 import UnoCSS from 'unocss/vite'
@@ -46,6 +47,8 @@ export default defineConfig(({ command, mode }) => {
 
   const { UNI_PLATFORM, SKIP_OPEN_DEVTOOLS } = process.env
   console.log('UNI_PLATFORM -> ', UNI_PLATFORM) // 得到 mp-weixin, h5, app 等
+  /** 仅在 H5 开发环境启用源码定位，避免影响生产包和非 Web 端流程。 */
+  const isH5InspectorEnabled = UNI_PLATFORM === 'h5' && mode === 'development'
 
   const env = loadEnv(mode, path.resolve(process.cwd(), 'env'))
   const {
@@ -57,8 +60,11 @@ export default defineConfig(({ command, mode }) => {
     VITE_APP_PROXY_ENABLE,
     VITE_APP_PROXY_PREFIX,
     VITE_COPY_NATIVE_RES_ENABLE,
+    VITE_VISUALIZER_ENABLE,
   } = env
   console.log('环境变量 env -> ', env)
+  /** 仅在显式开启时输出打包体积分析，默认关闭以免每次生产构建都自动弹窗。 */
+  const isVisualizerEnabled = UNI_PLATFORM === 'h5' && mode === 'production' && VITE_VISUALIZER_ENABLE === 'true'
 
   return defineConfig({
     envDir: './env', // 自定义env目录
@@ -118,6 +124,11 @@ export default defineConfig(({ command, mode }) => {
         dirs: ['src/hooks'], // 自动导入 hooks
         vueTemplate: true, // default false
       }),
+      // 开发时点击页面元素直接回到源码位置，方便联调页面结构和样式。
+      isH5InspectorEnabled
+      && codeInspectorPlugin({
+        bundler: 'vite',
+      }),
       ViteRestart({
         // 通过这个插件，在修改vite.config.js文件则不需要重新运行也生效配置
         restart: ['vite.config.js'],
@@ -131,9 +142,8 @@ export default defineConfig(({ command, mode }) => {
             .replace('%VITE_APP_TITLE%', VITE_APP_TITLE)
         },
       },
-      // 打包分析插件，h5 + 生产环境才弹出
-      UNI_PLATFORM === 'h5'
-      && mode === 'production'
+      // 打包分析插件仅在显式开启时生效，避免默认干扰正常打包流程。
+      isVisualizerEnabled
       && visualizer({
         filename: './node_modules/.cache/visualizer/stats.html',
         open: true,
