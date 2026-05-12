@@ -130,7 +130,7 @@ function getReplyAvatar(avatar?: string) {
               </view>
             </view>
           </view>
-          <view class="mt-4px text-12px text-gray-600 leading-1.7">
+          <view class="mt-4px text-12px text-gray-600">
             {{ reply.content }}
           </view>
         </view>

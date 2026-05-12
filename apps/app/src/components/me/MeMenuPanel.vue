@@ -14,6 +14,10 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [action: string]
 }>()
+
+function handleSelect(action: string) {
+  emit('select', action)
+}
 </script>
 
 <template>
@@ -23,7 +27,8 @@ const emit = defineEmits<{
       :key="item.action"
       class="flex items-center justify-between border-b border-#f5f5f5 py-16px active:opacity-70"
       :class="{ 'border-b-0': index === props.items.length - 1 }"
-      @click="emit('select', item.action)"
+      @tap="handleSelect(item.action)"
+      @click="handleSelect(item.action)"
     >
       <view class="flex items-center gap-3">
         <view :class="item.icon" class="text-20px text-orange-500" />
