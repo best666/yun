@@ -16,8 +16,12 @@ definePage({
 const {
   form,
   redirectPath,
-  smsCountdown,
+  smsCodeButtonText,
   isSendingCode,
+  isSmsCodeButtonDisabled,
+  isSmsLoginDisabled,
+  isMiniProgramLoginDisabled,
+  isOauthLoginDisabled,
   isSubmitting,
   oauthLoading,
   handleSmsLogin,
@@ -49,7 +53,7 @@ const {
       <view class="mt-8px text-13px text-#8a7569 leading-1.7">
         授权后将自动创建或绑定你的账号。
       </view>
-      <button class="auth-primary-btn" :loading="isSubmitting" @click="handleMiniProgramLogin">
+      <button class="auth-primary-btn" :loading="isSubmitting" :disabled="isMiniProgramLoginDisabled" @click="handleMiniProgramLogin">
         微信一键登录
       </button>
     </view>
@@ -63,11 +67,11 @@ const {
       <input v-model="form.phone" class="auth-input" type="number" :maxlength="11" placeholder="请输入手机号">
       <view class="flex items-center gap-10px">
         <input v-model="form.code" class="auth-input min-w-0 flex-1" type="number" :maxlength="6" placeholder="请输入验证码">
-        <button class="login-code-btn" :disabled="smsCountdown > 0 || isSendingCode" @click="handleSendSmsCode">
-          {{ smsCountdown > 0 ? `${smsCountdown}s` : '获取验证码' }}
+        <button class="login-code-btn" :disabled="isSmsCodeButtonDisabled" @click="handleSendSmsCode">
+          {{ smsCodeButtonText }}
         </button>
       </view>
-      <button class="auth-primary-btn" :loading="isSubmitting" @click="handleSmsLogin">
+      <button class="auth-primary-btn" :loading="isSubmitting" :disabled="isSmsLoginDisabled" @click="handleSmsLogin">
         手机号登录
       </button>
     </view>
@@ -77,10 +81,10 @@ const {
         第三方账号登录
       </view>
       <view class="login-oauth-grid">
-        <button class="login-oauth-wechat-btn" :loading="oauthLoading === 'wechat'" @click="startOauthLogin('wechat')">
+        <button class="login-oauth-wechat-btn" :loading="oauthLoading === 'wechat'" :disabled="isOauthLoginDisabled" @click="startOauthLogin('wechat')">
           微信登录
         </button>
-        <button class="login-oauth-douyin-btn" :loading="oauthLoading === 'douyin'" @click="startOauthLogin('douyin')">
+        <button class="login-oauth-douyin-btn" :loading="oauthLoading === 'douyin'" :disabled="isOauthLoginDisabled" @click="startOauthLogin('douyin')">
           抖音登录
         </button>
       </view>

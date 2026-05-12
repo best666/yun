@@ -26,6 +26,14 @@ export function useLoginPage() {
   const isSubmitting = ref(false)
   const oauthLoading = ref<LoginProvider | ''>('')
 
+  const smsCodeButtonText = computed(() => {
+    return smsCountdown.value > 0 ? `${smsCountdown.value}s` : '获取验证码'
+  })
+  const isSmsCodeButtonDisabled = computed(() => smsCountdown.value > 0 || isSendingCode.value)
+  const isSmsLoginDisabled = computed(() => isSubmitting.value || !form.phone.trim() || !form.code.trim())
+  const isMiniProgramLoginDisabled = computed(() => isSubmitting.value)
+  const isOauthLoginDisabled = computed(() => Boolean(oauthLoading.value))
+
   let smsTimer: ReturnType<typeof setInterval> | null = null
   let oauthMessageHandler: ((event: MessageEvent) => void) | null = null
 
@@ -69,6 +77,10 @@ export function useLoginPage() {
   }
 
   const handleSmsLogin = async () => {
+    if (isSubmitting.value) {
+      return
+    }
+
     if (!validatePhone()) {
       uni.showToast({ title: '请输入正确的手机号', icon: 'none' })
       return
@@ -120,6 +132,10 @@ export function useLoginPage() {
   }
 
   const handleMiniProgramLogin = async () => {
+    if (isSubmitting.value) {
+      return
+    }
+
     isSubmitting.value = true
     try {
       await tokenStore.wxLogin()
@@ -201,7 +217,12 @@ export function useLoginPage() {
     form,
     redirectPath,
     smsCountdown,
+    smsCodeButtonText,
     isSendingCode,
+    isSmsCodeButtonDisabled,
+    isSmsLoginDisabled,
+    isMiniProgramLoginDisabled,
+    isOauthLoginDisabled,
     isSubmitting,
     oauthLoading,
     handleSmsLogin,

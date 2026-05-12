@@ -3,6 +3,13 @@ name: uniApp 全栈高质量开发规则
 description: 适用于 uniApp 小程序 + H5 + NestJS + Pinia + TypeScript 项目的高质量实现规范。覆盖跨端适配、Vue 组件设计、composables/hooks 拆分、Pinia 状态管理、NestJS 分层、DTO 与接口协同、代码生成与维护策略。
 triggers: uniapp开发, 小程序开发, H5开发, Vue3开发, hooks封装, composables封装, Pinia状态管理, NestJS接口开发, DTO设计, 组件封装, 代码组织, 可维护性优化, AI代码生成规范
 
+当前仓库为 pnpm monorepo，默认包含以下主要包：
+- apps/app：uni-app 前端业务包
+- server：NestJS 后端服务
+- packages/shared：共享代码
+
+涉及前端实现时，优先遵循 apps/app 下的真实目录结构、ESLint 规则和生成文件边界，而不是按通用模板假设项目结构。
+
 本规范优先参考以下成熟实践：
 - Vue Style Guide：强调组件可读性、一致性、错误预防与职责清晰。
 - Pinia Core Concepts：强调 store 的边界、Setup Store 的公开状态、storeToRefs 使用和组合式风格。
@@ -16,6 +23,26 @@ triggers: uniapp开发, 小程序开发, H5开发, Vue3开发, hooks封装, comp
 3. 先复用已有模式，再新增抽象；新增抽象必须解决真实重复问题。
 4. 代码生成必须直接可运行，不允许伪代码、半成品、只写结构不写逻辑。
 5. 一切实现都要兼顾后续重构成本，避免把页面、组件、store、service 变成“万能文件”。
+
+--------------------------------------------------------------------------------
+# 零、当前仓库落地补充（强制参考）
+1. 运行命令默认从仓库根目录执行；前端优先使用 `pnpm --filter @yun/app ...`，后端优先使用 `pnpm --filter @yun/server ...`。
+2. apps/app 是业务前端，不是通用模板演示仓库；生成代码时优先贴合现有业务目录和调用链路。
+3. apps/app 中以下文件或目录默认视为生成产物或半生成产物：
+   - `src/service/**`
+   - `src/pages.json`
+   - `src/manifest.json`
+   - `auto-import.d.ts`
+   - `uni-pages.d.ts`
+   非必要不要直接手改，优先修改其上游配置、包装层或消费层。
+4. apps/app 已启用 Vue 和 uni-app 自动导入；若项目现状已依赖自动导入，不要机械补重复 import。
+5. 前端改动时，优先遵循 apps/app 的真实目录职责：
+   - pages：页面入口与业务编排
+   - components：可复用展示或局部交互单元
+   - hooks：副作用逻辑与状态机
+   - api：请求封装与业务接口入口
+   - store：跨页面共享状态
+   - utils：纯函数、缓存、格式化与轻量工具
 
 --------------------------------------------------------------------------------
 # 二、uni-app 跨端开发最佳实践
@@ -60,9 +87,10 @@ triggers: uniapp开发, 小程序开发, H5开发, Vue3开发, hooks封装, comp
    - 页面不要直接写复杂接口适配、重复数据映射和平台兼容细节，应下沉到 hook、api、utils。
    - 仅当前页面使用的状态、computed、事件处理、弹层开关、筛选条件，默认留在当前页面，不要为了“看起来更整洁”抽成单页专属 hook。
    - 如果一个 hook 只被单个页面使用，且没有形成独立可复用状态机，就优先回收到页面 script setup 中。
+   - 页面首先是编排层；当页面已经具备清晰的子区块时，优先拆组件而不是继续把逻辑塞进一个超长文件。
 
 3. Vue 风格一致性
-   - 保持文件内部结构稳定，推荐 script setup + template + style 的一致组织方式。
+   - 保持文件内部结构稳定；当前 apps/app 的 ESLint 规则要求使用 script setup + template + style 顺序。
    - 模板表达式保持简洁，复杂判断放到 computed 或具名函数中。
    - 避免在模板中堆叠长链式逻辑、匿名函数和难读三元表达式。
    - 保持命名稳定：组件 PascalCase，函数 camelCase，常量 UPPER_SNAKE_CASE。
@@ -130,6 +158,7 @@ triggers: uniapp开发, 小程序开发, H5开发, Vue3开发, hooks封装, comp
    - store：Pinia 业务域状态。
    - utils：纯函数、格式化、轻量平台工具。
    - config：常量、环境配置、平台参数。
+   - 对 apps/app 额外补充：`http` 负责请求客户端配置，`service` 为生成代码目录，`layouts` 为布局组合层，`router` 为导航辅助。
 
 2. 接口层组织
    - 页面不能直接写请求地址，必须通过 api 层调用。
@@ -193,13 +222,15 @@ triggers: uniapp开发, 小程序开发, H5开发, Vue3开发, hooks封装, comp
    - 先判断是否应该扩展现有模块，而不是默认新建一套平行实现。
    - 先定义边界：哪些属于页面状态，哪些属于组件，哪些属于 store，哪些属于 service。
    - 先判断“这是复用问题还是页面组织问题”：如果只是当前页面内部信息，优先留在页面，不要先手抽 hook。
+   - 在 apps/app 中，先检查现有页面是否已经有可延续的组件拆分点、hook 模式或 api 包装层，不要复制出第二套实现。
+   - 根据功能或逻辑，依据单一职责封装必要的组件及逻辑，避免长篇代码。
 
 2. 生成中
    - 直接输出可运行代码，不输出示意性代码。
    - 自动补齐 loading、empty、error、retry、权限校验、表单校验和异常捕获。
    - 自动补齐条件编译与平台差异处理。
    - 自动补齐必要类型、DTO、api 和调用链路，不能只改视图层。
-   - 注释必须克制且有效，只给复杂和容易误解的部分加注释，并说明为什么。
+   - 注释必须克制且有效，有必要即注释，必须给复杂和容易误解的部分加注释，注释需要说明为什么。
    - 新页面默认优先使用 UnoCSS 原子类与 shortcuts。禁止默认新增大段 `<style scoped>`；只有以下场景允许使用 style：
       1. 伪元素/复杂 keyframes
       2. 第三方组件深度覆盖
@@ -212,6 +243,7 @@ triggers: uniapp开发, 小程序开发, H5开发, Vue3开发, hooks封装, comp
    - 检查是否引入了无用状态、无用类型、无用接口、无用 props。
    - 检查是否保留了无入口旧能力、废弃 API 或死代码。
    - 检查前后端字段是否一致，命名是否统一。
+   - 如果改动发生在 apps/app，至少确认页面依然保持“页面编排 + 组件展示 + 必要 hook 状态机”的清晰边界。
 
 --------------------------------------------------------------------------------
 # 十、可维护性红线
@@ -233,6 +265,11 @@ triggers: uniapp开发, 小程序开发, H5开发, Vue3开发, hooks封装, comp
 3. 涉及上传、地图、授权、定位时，必须检查 H5 与小程序两端行为是否一致。
 4. 涉及 store 时，必须检查是否真的需要全局化，以及解构是否使用 storeToRefs。
 5. 涉及接口增删改时，必须检查前端 api、types、页面、store、后端 DTO、controller、service 是否全链路同步。
+6. apps/app 前端改动默认从仓库根目录执行最小验证：
+   - `pnpm --filter @yun/app type-check`
+   - 若涉及导入顺序、样式、规范或未使用代码，再检查 `pnpm --filter @yun/app lint`
+   - 若涉及构建、路由、平台行为或样式产物，再检查 `pnpm --filter @yun/app build:h5`
+7. apps/server 后端改动默认至少检查 `pnpm --filter @yun/server build`。
 
 --------------------------------------------------------------------------------
 # 十二、推荐输出风格

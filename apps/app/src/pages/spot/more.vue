@@ -1,10 +1,11 @@
 <script lang="ts" setup>
 import type { ISpotDetail, ISpotDetailQuery } from '@/api/types/spot'
-import { deleteMySpotReviewReply, getSpotDetail, toggleSpotDiscussionLike, toggleSpotReviewLike } from '@/api/spot'
+import { deleteMySpotReviewReply, toggleSpotDiscussionLike, toggleSpotReviewLike } from '@/api/spot'
 import SpotDiscussionCard from '@/components/spot/SpotDiscussionCard.vue'
 import SpotQuestionCard from '@/components/spot/SpotQuestionCard.vue'
 import SpotReviewCard from '@/components/spot/SpotReviewCard.vue'
 import { useTokenStore } from '@/store'
+import { fetchAndCacheSpotDetail, getCachedSpotDetail } from '@/utils/spotDetailCache'
 import { toLoginPage } from '@/utils/toLoginPage'
 
 type SpotMoreContentType = 'discussions' | 'reviews'
@@ -132,9 +133,16 @@ function parseNumberValue(value: unknown) {
 async function fetchSpotDetail() {
   loading.value = true
   loadError.value = ''
+  const nextDetailQuery = { ...detailQuery }
+  const cachedDetail = getCachedSpotDetail(nextDetailQuery)
+
+  if (cachedDetail) {
+    spotDetail.value = cachedDetail
+    loading.value = false
+  }
 
   try {
-    spotDetail.value = await getSpotDetail({ ...detailQuery })
+    spotDetail.value = await fetchAndCacheSpotDetail(nextDetailQuery)
   }
   catch (error) {
     spotDetail.value = null

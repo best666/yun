@@ -1,9 +1,10 @@
 import type { IUploadSuccessInfo } from '@/api/types/login'
 import type { ISpotDetail, ISpotDetailQuery } from '@/api/types/spot'
-import { createSpotDiscussion, createSpotReview, createSpotReviewReply, deleteMySpotReviewReply, getSpotDetail, toggleSpotDiscussionLike, toggleSpotReviewLike } from '@/api/spot'
+import { createSpotReview, createSpotReviewReply, deleteMySpotReviewReply, toggleSpotReviewLike } from '@/api/spot'
 import { useFavoriteStore, useFootprintStore, useMapSettingStore, useTokenStore, useUserContentStore, useUserStore } from '@/store'
 import { getEnvBaseUrl } from '@/utils'
 import { openNavigationWithPreference } from '@/utils/mapNavigation'
+import { fetchAndCacheSpotDetail, getCachedSpotDetail } from '@/utils/spotDetailCache'
 import { toLoginPage } from '@/utils/toLoginPage'
 
 type DetailTabKey = 'heat' | 'reviews'
@@ -14,6 +15,50 @@ const DETAIL_BACK_SWIPE_THRESHOLD = 72
 const DETAIL_PREVIEW_COUNT = 3
 const HEAT_TO_REVIEW_SCROLL_TOP = 440
 const REVIEW_MAX_IMAGE_COUNT = 3
+const DETAIL_SHEET_CLOSE_DELAY = 260
+
+function createSheetController() {
+  const rendered = ref(false)
+  const visible = ref(false)
+  let closeTimer: ReturnType<typeof setTimeout> | null = null
+
+  function clearCloseTimer() {
+    if (closeTimer) {
+      clearTimeout(closeTimer)
+      closeTimer = null
+    }
+  }
+
+  function open() {
+    clearCloseTimer()
+    rendered.value = true
+
+    nextTick(() => {
+      visible.value = true
+    })
+  }
+
+  function close(afterClose?: () => void) {
+    visible.value = false
+    clearCloseTimer()
+    closeTimer = setTimeout(() => {
+      rendered.value = false
+      closeTimer = null
+      afterClose?.()
+    }, DETAIL_SHEET_CLOSE_DELAY)
+  }
+
+  onScopeDispose(() => {
+    clearCloseTimer()
+  })
+
+  return {
+    rendered,
+    visible,
+    open,
+    close,
+  }
+}
 
 export function useSpotDetailPage() {
   const favoriteStore = useFavoriteStore()
@@ -28,12 +73,6 @@ export function useSpotDetailPage() {
   const loadError = ref('')
   const enteredFromMap = ref(false)
   const activeTab = ref<DetailTabKey>('heat')
-  const showReviewSheet = ref(false)
-  const sheetVisible = ref(false)
-  const showDiscussionSheet = ref(false)
-  const discussionSheetVisible = ref(false)
-  const showReviewReplySheet = ref(false)
-  const reviewReplySheetVisible = ref(false)
   const reviewReplyTargetId = ref('')
   const highlightedReviewId = ref('')
   const detailTouchStartY = ref(0)
@@ -41,16 +80,15 @@ export function useSpotDetailPage() {
   const detailScrollTop = ref(0)
   const isUploadingReviewImage = ref(false)
 
+  const reviewSheetController = createSheetController()
+  const reviewReplySheetController = createSheetController()
+
   const reviewForm = reactive({
     rating: 5,
     content: '',
     images: [] as string[],
     locationName: '',
     locationAddress: '',
-  })
-
-  const discussionForm = reactive({
-    content: '',
   })
 
   const reviewReplyForm = reactive({
@@ -319,8 +357,17 @@ export function useSpotDetailPage() {
     loading.value = true
     loadError.value = ''
 
+    const detailQuerySnapshot = { ...detailQuery }
+    const cachedDetail = getCachedSpotDetail(detailQuerySnapshot)
+
+    if (cachedDetail) {
+      spotDetail.value = cachedDetail
+      spotIdentity.value = cachedDetail.id
+      loading.value = false
+    }
+
     try {
-      spotDetail.value = await getSpotDetail({ ...detailQuery })
+      spotDetail.value = await fetchAndCacheSpotDetail(detailQuerySnapshot, !cachedDetail)
       spotIdentity.value = spotDetail.value.id
 
       if (tokenStore.hasLogin) {
@@ -336,6 +383,11 @@ export function useSpotDetailPage() {
       }
     }
     catch (error) {
+      if (cachedDetail) {
+        console.error('刷新地点详情失败，已回退到预取缓存', error)
+        return
+      }
+
       spotDetail.value = null
       loadError.value = '地点详情加载失败，请稍后重试'
       console.error('加载地点详情失败', error)
@@ -402,42 +454,6 @@ export function useSpotDetailPage() {
         copyText(sharePath, '详情链接已复制')
       },
     })
-  }
-
-  function renderStars(rating: number) {
-    return '★'.repeat(Math.floor(rating)) + (rating % 1 >= 0.5 ? '☆' : '')
-  }
-
-  function getReviewHeatScore(review: NonNullable<ISpotDetail['reviews']>[number]) {
-    return review.likeCount + review.replyCount
-  }
-
-  function getPreviewReviewReplies(review: NonNullable<ISpotDetail['reviews']>[number]) {
-    return review.replies.slice(0, 2)
-  }
-
-  function formatDistance(distance?: number) {
-    if (typeof distance !== 'number' || Number.isNaN(distance)) {
-      return ''
-    }
-
-    if (distance >= 1000) {
-      return `${(distance / 1000).toFixed(1)}km`
-    }
-
-    return `${Math.round(distance)}m`
-  }
-
-  function formatCount(count?: number) {
-    if (!count) {
-      return '0'
-    }
-
-    if (count >= 10000) {
-      return `${(count / 10000).toFixed(1)}w`
-    }
-
-    return String(count)
   }
 
   function previewImages(images: string[], current: string) {
@@ -546,11 +562,7 @@ export function useSpotDetailPage() {
     }
 
     resetReviewForm(5)
-    showReviewSheet.value = true
-
-    nextTick(() => {
-      sheetVisible.value = true
-    })
+    reviewSheetController.open()
   }
 
   function openReviewPanelWithRating(star: number) {
@@ -559,39 +571,13 @@ export function useSpotDetailPage() {
     }
 
     resetReviewForm(star)
-    showReviewSheet.value = true
-
-    nextTick(() => {
-      sheetVisible.value = true
-    })
+    reviewSheetController.open()
   }
 
   function closeReviewPanel() {
-    sheetVisible.value = false
-    setTimeout(() => {
-      showReviewSheet.value = false
+    reviewSheetController.close(() => {
       isUploadingReviewImage.value = false
-    }, 260)
-  }
-
-  function openDiscussionPanel() {
-    if (!ensureLoggedIn() || !ensurePersistedSpotReady()) {
-      return
-    }
-
-    discussionForm.content = ''
-    showDiscussionSheet.value = true
-
-    nextTick(() => {
-      discussionSheetVisible.value = true
     })
-  }
-
-  function closeDiscussionPanel() {
-    discussionSheetVisible.value = false
-    setTimeout(() => {
-      showDiscussionSheet.value = false
-    }, 260)
   }
 
   function addReviewImage() {
@@ -632,19 +618,13 @@ export function useSpotDetailPage() {
 
     reviewReplyTargetId.value = reviewId
     reviewReplyForm.content = ''
-    showReviewReplySheet.value = true
-
-    nextTick(() => {
-      reviewReplySheetVisible.value = true
-    })
+    reviewReplySheetController.open()
   }
 
   function closeReviewReplyPanel() {
-    reviewReplySheetVisible.value = false
-    setTimeout(() => {
-      showReviewReplySheet.value = false
+    reviewReplySheetController.close(() => {
       reviewReplyTargetId.value = ''
-    }, 260)
+    })
   }
 
   function setReviewRating(star: number) {
@@ -720,37 +700,6 @@ export function useSpotDetailPage() {
     }
     catch (error) {
       console.error('评价点赞失败', error)
-    }
-  }
-
-  async function submitDiscussion() {
-    if (!spotDetail.value || !isPersistedSpot.value) {
-      return
-    }
-
-    if (!discussionForm.content.trim()) {
-      uni.showToast({ title: '请输入讨论内容', icon: 'none' })
-      return
-    }
-
-    try {
-      const createdDiscussion = await createSpotDiscussion({
-        spotId: Number(spotIdentity.value),
-        content: discussionForm.content.trim(),
-      })
-
-      spotDetail.value.discussions.unshift(createdDiscussion)
-      userContentStore.addDiscussion({
-        ...createdDiscussion,
-        spotId: Number(spotIdentity.value),
-        spotName: spotDetail.value.name,
-      })
-      activeTab.value = 'heat'
-      closeDiscussionPanel()
-      uni.showToast({ title: '讨论已发布', icon: 'success' })
-    }
-    catch (error) {
-      console.error('发布讨论失败', error)
     }
   }
 
@@ -842,54 +791,6 @@ export function useSpotDetailPage() {
     })
   }
 
-  async function likeDiscussion(discussionId: string) {
-    if (!ensureLoggedIn() || !spotDetail.value) {
-      return
-    }
-
-    const discussion = spotDetail.value.discussions.find(item => item.id === discussionId)
-    if (!discussion) {
-      return
-    }
-
-    try {
-      const result = await toggleSpotDiscussionLike({
-        discussionId: Number(discussionId),
-      })
-
-      discussion.likedByCurrentUser = result.liked
-      discussion.likeCount = result.likeCount
-    }
-    catch (error) {
-      console.error('讨论点赞失败', error)
-    }
-  }
-
-  async function removeDiscussion(discussionId: string) {
-    if (!spotDetail.value) {
-      return
-    }
-
-    uni.showModal({
-      title: '提示',
-      content: '确定要删除这条讨论吗？',
-      success: async (res) => {
-        if (!res.confirm) {
-          return
-        }
-
-        try {
-          await userContentStore.removeDiscussion(Number(discussionId))
-          spotDetail.value!.discussions = spotDetail.value!.discussions.filter(item => item.id !== discussionId)
-          uni.showToast({ title: '已删除', icon: 'none' })
-        }
-        catch (error) {
-          console.error('删除讨论失败', error)
-        }
-      },
-    })
-  }
-
   function onDetailTouchStart(event: any) {
     detailTouchStartY.value = event.touches?.[0]?.clientY ?? 0
     detailTouchEndY.value = detailTouchStartY.value
@@ -914,17 +815,15 @@ export function useSpotDetailPage() {
     activeTab,
     loading,
     loadError,
-    showReviewSheet,
-    sheetVisible,
-    showDiscussionSheet,
-    discussionSheetVisible,
-    showReviewReplySheet,
-    reviewReplySheetVisible,
+    showReviewSheet: reviewSheetController.rendered,
+    sheetVisible: reviewSheetController.visible,
+    showReviewReplySheet: reviewReplySheetController.rendered,
+    reviewReplySheetVisible: reviewReplySheetController.visible,
     reviewForm,
-    discussionForm,
     reviewReplyForm,
     spotDetail,
     previewReviews,
+    highlightedReviewId,
     reviewReplyTarget,
     detailDistance,
     isFavorited,
@@ -932,8 +831,6 @@ export function useSpotDetailPage() {
     fetchSpotDetail,
     goBack,
     shareSpot,
-    renderStars,
-    formatCount,
     previewImages,
     toggleFavorite,
     openNavigation,
@@ -944,8 +841,6 @@ export function useSpotDetailPage() {
     openReviewPanel,
     openReviewPanelWithRating,
     closeReviewPanel,
-    openDiscussionPanel,
-    closeDiscussionPanel,
     addReviewImage,
     isUploadingReviewImage,
     removeReviewImage,
@@ -956,18 +851,11 @@ export function useSpotDetailPage() {
     setReviewRating,
     submitReview,
     likeReview,
-    submitDiscussion,
     submitReviewReply,
     removeReviewReply,
     removeReview,
-    likeDiscussion,
-    removeDiscussion,
     onDetailTouchStart,
     onDetailTouchMove,
     onDetailTouchEnd,
-    getPreviewReviewReplies,
-    formatDistance,
-    isHighlightedReview,
-    getReviewAnchorId,
   }
 }
