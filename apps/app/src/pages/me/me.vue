@@ -66,10 +66,8 @@ onShow(async () => {
       await favoriteStore.ensureServerFavoritesLoaded(true)
       await Promise.all([
         userContentStore.fetchMyReviews(),
+        userContentStore.fetchMyReviewReplies(),
         userContentStore.fetchMyDiscussions(),
-        userContentStore.fetchMyNotes(),
-        userContentStore.fetchMyLikedNotes(),
-        userContentStore.fetchMyQuestions(),
         userContentStore.fetchMyNotifications(),
       ])
     }
@@ -131,8 +129,8 @@ const favoriteSpots = computed(() => {
 const stats = computed(() => [
   { label: '收藏', value: favoriteStore.favoriteCount },
   { label: '评价', value: userContentStore.reviewCount },
+  { label: '回复', value: userContentStore.reviewReplyCount },
   { label: '讨论', value: userContentStore.discussionCount },
-  { label: '问答', value: userContentStore.questionCount },
   { label: '足迹', value: footprintStore.footprintCount },
 ])
 
@@ -154,10 +152,8 @@ interface NotificationGroupItem {
 const menuList: MenuItem[] = [
   { icon: 'i-carbon-favorite', label: '我的收藏', action: 'favorites', count: () => favoriteStore.favoriteCount },
   { icon: 'i-carbon-star', label: '我的评价', action: 'reviews', count: () => userContentStore.reviewCount },
+  { icon: 'i-carbon-chat', label: '我的回复', action: 'review-replies', count: () => userContentStore.reviewReplyCount },
   { icon: 'i-carbon-chat', label: '我的讨论', action: 'discussions', count: () => userContentStore.discussionCount },
-  { icon: 'i-carbon-document', label: '我的笔记', action: 'notes', count: () => userContentStore.noteCount },
-  { icon: 'i-carbon-thumbs-up', label: '我的点赞', action: 'liked-notes', count: () => userContentStore.likedNoteCount },
-  { icon: 'i-carbon-help', label: '我的问答', action: 'questions', count: () => userContentStore.questionCount },
   { icon: 'i-carbon-notification', label: '互动提醒', action: 'notifications', count: () => userContentStore.unreadNotificationCount },
   { icon: 'i-carbon-location', label: '浏览足迹', action: 'footprint', count: () => footprintStore.footprintCount },
   { icon: 'i-carbon-settings', label: '设置', action: 'settings' },
@@ -172,12 +168,12 @@ const showSettings = ref(false)
 /** 提醒类型标题映射，统一管理后续新增提醒类型的中文展示。 */
 const notificationGroupMetaMap: Record<string, { title: string, icon: string }> = {
   discussion_like: { title: '点赞我的讨论', icon: 'i-carbon-thumbs-up' },
-  note_like: { title: '点赞我的笔记', icon: 'i-carbon-favorite' },
-  question_answer: { title: '回复我的问题', icon: 'i-carbon-chat' },
+  review_like: { title: '点赞我的评价', icon: 'i-carbon-thumbs-up-filled' },
+  review_reply: { title: '回复我的评价', icon: 'i-carbon-chat' },
+  question_answer: { title: '回复我的讨论', icon: 'i-carbon-chat' },
   favorite_spot_new_review: { title: '收藏地新评价', icon: 'i-carbon-star' },
   favorite_spot_new_discussion: { title: '收藏地新讨论', icon: 'i-carbon-chat-bot' },
-  favorite_spot_new_note: { title: '收藏地新笔记', icon: 'i-carbon-document' },
-  favorite_spot_new_question: { title: '收藏地新问答', icon: 'i-carbon-help' },
+  favorite_spot_new_question: { title: '收藏地新讨论', icon: 'i-carbon-chat-bot' },
 }
 
 /** 将互动提醒按业务类型分组，减少列表混杂，提高扫读效率。 */
@@ -276,7 +272,7 @@ function formatDateTime(value: string) {
 }
 
 function onMenuTap(item: MenuItem) {
-  if (item.action === 'favorites' || item.action === 'footprint' || item.action === 'reviews' || item.action === 'notes' || item.action === 'discussions' || item.action === 'liked-notes' || item.action === 'questions' || item.action === 'notifications') {
+  if (item.action === 'favorites' || item.action === 'footprint' || item.action === 'reviews' || item.action === 'review-replies' || item.action === 'discussions' || item.action === 'notifications') {
     expandedAction.value = expandedAction.value === item.action ? '' : item.action
 
     if (item.action === 'footprint' && expandedAction.value === 'footprint') {
@@ -295,7 +291,47 @@ function onMenuTap(item: MenuItem) {
   }
 }
 
-/** 跳转到地点详情 */
+/** 删除评价回复。 */
+function removeReviewReply(replyId: string) {
+  uni.showModal({
+    title: '提示',
+    content: '确定要删除这条回复吗？',
+    async success(res) {
+      if (res.confirm) {
+        try {
+          await userContentStore.removeReviewReply(Number(replyId))
+          uni.showToast({ title: '已删除', icon: 'none' })
+        }
+        catch (error) {
+          console.error('删除评价回复失败', error)
+        }
+      }
+    },
+  })
+}
+
+/** 根据提醒目标跳转到更准确的详情视图，评价相关提醒直接落到评价 tab。 */
+function goNotificationTarget(notification: ISpotInteractionNotificationItem) {
+  if (!notification.spotId) {
+    return
+  }
+
+  const queryList = [`id=${notification.spotId}`]
+
+  if (notification.targetType === 'review' || notification.targetType === 'review_reply' || notification.type === 'review_like') {
+    queryList.push('tab=reviews')
+
+    if (notification.targetId) {
+      queryList.push(`reviewId=${notification.targetId}`)
+    }
+  }
+
+  uni.navigateTo({
+    url: `/pages/spot/detail?${queryList.join('&')}`,
+  })
+}
+
+/** 跳转到地点详情。 */
 function goSpotDetail(spot: number | FavoriteSpotSummary) {
   if (typeof spot === 'number') {
     uni.navigateTo({ url: `/pages/spot/detail?id=${spot}` })
@@ -305,7 +341,7 @@ function goSpotDetail(spot: number | FavoriteSpotSummary) {
   uni.navigateTo({ url: buildSpotDetailUrlFromFavorite(spot) })
 }
 
-/** 取消收藏 */
+/** 取消收藏。 */
 async function removeFavorite(spot: FavoriteSpotSummary) {
   try {
     const result = await favoriteStore.toggleFavorite(spot)
@@ -348,25 +384,6 @@ function removeDiscussion(discussionId: string) {
         }
         catch (error) {
           console.error('删除讨论失败', error)
-        }
-      }
-    },
-  })
-}
-
-/** 删除笔记 */
-function removeNote(noteId: string) {
-  uni.showModal({
-    title: '提示',
-    content: '确定要删除这篇笔记吗？',
-    async success(res) {
-      if (res.confirm) {
-        try {
-          await userContentStore.removeNote(Number(noteId))
-          uni.showToast({ title: '已删除', icon: 'none' })
-        }
-        catch (error) {
-          console.error('删除笔记失败', error)
         }
       }
     },
@@ -566,6 +583,35 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
       </view>
     </view>
 
+    <!-- 我的评价回复展开 -->
+    <view v-if="expandedAction === 'review-replies'" class="expand-card">
+      <view v-if="userContentStore.reviewReplies.length === 0" class="py-8 text-center text-13px text-gray-400">
+        还没有发布评价回复，去评价区参与讨论吧
+      </view>
+      <view v-for="reply in userContentStore.reviewReplies" :key="reply.id" class="review-item">
+        <view class="flex items-center justify-between">
+          <view class="flex items-center gap-2" @click="goSpotDetail(reply.spotId)">
+            <view class="rounded-6px bg-orange-50 px-2 py-1 text-12px text-orange-500">
+              {{ reply.spotName }}
+            </view>
+            <view class="rounded-6px bg-gray-100 px-2 py-1 text-11px text-gray-500">
+              评价回复
+            </view>
+          </view>
+          <view class="i-carbon-close flex-shrink-0 text-14px text-gray-300" @click.stop="removeReviewReply(reply.id)" />
+        </view>
+        <view class="mt-2 rounded-12px bg-gray-50 px-3 py-2 text-12px text-gray-500 leading-relaxed">
+          {{ reply.reviewContent }}
+        </view>
+        <view class="mt-2 text-13px text-gray-600 leading-relaxed">
+          {{ reply.content }}
+        </view>
+        <view class="mt-1 text-11px text-gray-400">
+          {{ reply.time }}
+        </view>
+      </view>
+    </view>
+
     <!-- 我的讨论展开 -->
     <view v-if="expandedAction === 'discussions'" class="expand-card">
       <view v-if="userContentStore.discussions.length === 0" class="py-8 text-center text-13px text-gray-400">
@@ -593,100 +639,6 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
       </view>
     </view>
 
-    <!-- 我的笔记展开 -->
-    <view v-if="expandedAction === 'notes'" class="expand-card">
-      <view v-if="userContentStore.notes.length === 0" class="py-8 text-center text-13px text-gray-400">
-        还没有发布笔记，去地点详情页写一篇吧
-      </view>
-      <view v-for="note in userContentStore.notes" :key="note.id" class="note-item">
-        <view class="flex items-start gap-3" @click="goSpotDetail(note.spotId)">
-          <image :src="note.cover" class="h-70px w-70px flex-shrink-0 rounded-10px" mode="aspectFill" />
-          <view class="min-w-0 flex-1">
-            <view class="truncate text-14px text-gray-800 font-medium">
-              {{ note.title }}
-            </view>
-            <view class="line-clamp-2 mt-1 text-12px text-gray-500">
-              {{ note.content }}
-            </view>
-            <view class="mt-1 flex items-center justify-between">
-              <view class="rounded-6px bg-orange-50 px-2 py-0.5 text-11px text-orange-500">
-                {{ note.spotName }}
-              </view>
-              <text class="text-11px text-gray-400">{{ note.time }}</text>
-            </view>
-          </view>
-        </view>
-        <view class="mt-2 flex justify-end">
-          <view class="flex items-center gap-1 text-12px text-gray-400" @click.stop="removeNote(note.id)">
-            <view class="i-carbon-trash-can text-12px" />
-            <text>删除</text>
-          </view>
-        </view>
-      </view>
-    </view>
-
-    <!-- 我的点赞展开 -->
-    <view v-if="expandedAction === 'liked-notes'" class="expand-card">
-      <view v-if="userContentStore.likedNotes.length === 0" class="py-8 text-center text-13px text-gray-400">
-        还没有点赞过笔记，去详情页看看大家的探店记录吧
-      </view>
-      <view v-for="note in userContentStore.likedNotes" :key="note.id" class="note-item" @click="goSpotDetail(note.spotId)">
-        <view class="flex items-start gap-3">
-          <image :src="note.cover" class="h-70px w-70px flex-shrink-0 rounded-10px" mode="aspectFill" />
-          <view class="min-w-0 flex-1">
-            <view class="truncate text-14px text-gray-800 font-medium">
-              {{ note.title }}
-            </view>
-            <view class="line-clamp-2 mt-1 text-12px text-gray-500">
-              {{ note.content }}
-            </view>
-            <view class="mt-1 flex items-center justify-between">
-              <view class="rounded-6px bg-orange-50 px-2 py-0.5 text-11px text-orange-500">
-                {{ note.spotName }}
-              </view>
-              <view class="flex items-center gap-1 text-11px text-orange-500">
-                <view class="i-carbon-thumbs-up-filled text-11px" />
-                <text>{{ note.likeCount }}</text>
-              </view>
-            </view>
-            <view class="mt-1 text-11px text-gray-400">
-              点赞于 {{ note.likedAt }}
-            </view>
-          </view>
-        </view>
-      </view>
-    </view>
-
-    <!-- 我的问答展开 -->
-    <view v-if="expandedAction === 'questions'" class="expand-card">
-      <view v-if="userContentStore.questions.length === 0" class="py-8 text-center text-13px text-gray-400">
-        还没有发起问答，去地点详情页提一个你关心的问题吧
-      </view>
-      <view v-for="question in userContentStore.questions" :key="question.id" class="review-item">
-        <view class="flex items-center justify-between" @click="goSpotDetail(question.spotId)">
-          <view class="rounded-6px bg-orange-50 px-2 py-1 text-12px text-orange-500">
-            {{ question.spotName }}
-          </view>
-          <text class="text-11px text-gray-400">{{ question.time }}</text>
-        </view>
-        <view class="mt-2 text-14px text-gray-800 font-medium leading-relaxed">
-          {{ question.question }}
-        </view>
-        <view v-if="question.answers.length === 0" class="mt-2 text-12px text-gray-400">
-          暂无回复
-        </view>
-        <view v-for="answer in question.answers" :key="answer.id" class="mt-2 rounded-12px bg-gray-50 px-3 py-2">
-          <view class="flex items-center justify-between text-11px text-gray-400">
-            <text>{{ answer.userName }}</text>
-            <text>{{ answer.time }}</text>
-          </view>
-          <view class="mt-1 text-12px text-gray-600 leading-relaxed">
-            {{ answer.content }}
-          </view>
-        </view>
-      </view>
-    </view>
-
     <!-- 互动提醒展开 -->
     <view v-if="expandedAction === 'notifications'" class="expand-card">
       <view v-if="userContentStore.notifications.length === 0" class="py-8 text-center text-13px text-gray-400">
@@ -700,7 +652,7 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
           </view>
           <text class="notification-group__count">{{ group.items.length }} 条</text>
         </view>
-        <view v-for="notification in group.items" :key="notification.id" class="review-item" @click="notification.spotId ? goSpotDetail(notification.spotId) : undefined">
+        <view v-for="notification in group.items" :key="notification.id" class="review-item" @click="goNotificationTarget(notification)">
           <view class="flex items-start justify-between gap-3">
             <view class="min-w-0 flex flex-1 items-start gap-3">
               <image :src="notification.actorAvatar" class="h-42px w-42px flex-shrink-0 rounded-full" mode="aspectFill" />

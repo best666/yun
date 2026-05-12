@@ -1,29 +1,23 @@
 import type {
   FavoriteSpotSummary,
   ICreateSpotDiscussionPayload,
-  ICreateSpotNotePayload,
-  ICreateSpotQuestionAnswerPayload,
-  ICreateSpotQuestionPayload,
   ICreateSpotReviewPayload,
-  IMyLikedSpotNoteItem,
+  ICreateSpotReviewReplyPayload,
   IMySpotDiscussionItem,
-  IMySpotNoteItem,
-  IMySpotQuestionItem,
   IMySpotReviewItem,
+  IMySpotReviewReplyItem,
   ISpotDetail,
   ISpotDetailQuery,
   ISpotDiscussionItem,
   ISpotInteractionNotificationList,
-  ISpotNoteItem,
-  ISpotQuestionAnswerItem,
-  ISpotQuestionItem,
   ISpotReviewItem,
+  ISpotReviewReplyItem,
   IToggleSpotDiscussionLikePayload,
   IToggleSpotDiscussionLikeResult,
   IToggleSpotFavoritePayload,
   IToggleSpotFavoriteResult,
-  IToggleSpotNoteLikePayload,
-  IToggleSpotNoteLikeResult,
+  IToggleSpotReviewLikePayload,
+  IToggleSpotReviewLikeResult,
 } from './types/spot'
 import { http } from '@/http/http'
 
@@ -43,36 +37,28 @@ export function createSpotReview(data: ICreateSpotReviewPayload) {
   return http.post<ISpotReviewItem>('/api/spot/review', data)
 }
 
+export function createSpotReviewReply(data: ICreateSpotReviewReplyPayload) {
+  return http.post<ISpotReviewReplyItem>('/api/spot/review/reply', data)
+}
+
 export function getMySpotReviews() {
   return http.get<IMySpotReviewItem[]>('/api/spot/review/my')
+}
+
+export function getMySpotReviewReplies() {
+  return http.get<IMySpotReviewReplyItem[]>('/api/spot/review/reply/my')
 }
 
 export function deleteMySpotReview(reviewId: number) {
   return http.delete<{ id: string }>(`/api/spot/review/${reviewId}`)
 }
 
-export function getMySpotNotes() {
-  return http.get<IMySpotNoteItem[]>('/api/spot/note/my')
+export function deleteMySpotReviewReply(replyId: number) {
+  return http.delete<{ id: string }>(`/api/spot/review/reply/${replyId}`)
 }
 
-export function getMyLikedSpotNotes() {
-  return http.get<IMyLikedSpotNoteItem[]>('/api/spot/note/liked/my')
-}
-
-export function createSpotNote(data: ICreateSpotNotePayload) {
-  return http.post<ISpotNoteItem>('/api/spot/note', data)
-}
-
-export function toggleSpotNoteLike(data: IToggleSpotNoteLikePayload) {
-  return http.post<IToggleSpotNoteLikeResult>('/api/spot/note/like/toggle', data)
-}
-
-export function deleteMySpotNote(noteId: number) {
-  return http.delete<{ id: string }>(`/api/spot/note/${noteId}`)
-}
-
-export function getMySpotQuestions() {
-  return http.get<IMySpotQuestionItem[]>('/api/spot/question/my')
+export function toggleSpotReviewLike(data: IToggleSpotReviewLikePayload) {
+  return http.post<IToggleSpotReviewLikeResult>('/api/spot/review/like/toggle', data)
 }
 
 export function getMySpotInteractionNotifications() {
@@ -81,14 +67,6 @@ export function getMySpotInteractionNotifications() {
 
 export function markAllSpotInteractionNotificationsRead() {
   return http.post<{ success: boolean }>('/api/spot/interaction-notification/read/all')
-}
-
-export function createSpotQuestion(data: ICreateSpotQuestionPayload) {
-  return http.post<ISpotQuestionItem>('/api/spot/question', data)
-}
-
-export function createSpotQuestionAnswer(data: ICreateSpotQuestionAnswerPayload) {
-  return http.post<ISpotQuestionAnswerItem>('/api/spot/question/answer', data)
 }
 
 export function createSpotDiscussion(data: ICreateSpotDiscussionPayload) {

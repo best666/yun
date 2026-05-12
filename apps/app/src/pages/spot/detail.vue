@@ -1,21 +1,34 @@
 <script lang="ts" setup>
+import type { IUploadSuccessInfo } from '@/api/types/login'
 import type { ISpotDetail, ISpotDetailQuery } from '@/api/types/spot'
-import { createSpotDiscussion, createSpotNote, createSpotQuestion, createSpotQuestionAnswer, createSpotReview, getSpotDetail, toggleSpotDiscussionLike, toggleSpotNoteLike } from '@/api/spot'
+import { createSpotDiscussion, createSpotReview, createSpotReviewReply, deleteMySpotReviewReply, getSpotDetail, toggleSpotDiscussionLike, toggleSpotReviewLike } from '@/api/spot'
 import { useFavoriteStore, useFootprintStore, useMapSettingStore, useTokenStore, useUserContentStore, useUserStore } from '@/store'
+import { getEnvBaseUrl } from '@/utils'
 import { openNavigationWithPreference } from '@/utils/mapNavigation'
 import { toLoginPage } from '@/utils/toLoginPage'
 
-/** 详情内容 tab，用于在热度、笔记、问答之间切换。 */
-type DetailTabKey = 'heat' | 'notes' | 'questions'
+/** 详情内容 tab，用于在热度和评价之间切换。 */
+type DetailTabKey = 'heat' | 'reviews'
+
+/** 更多页内容类型，用于承接详情页的完整列表展示。 */
+type SpotMoreContentType = 'discussions' | 'reviews'
+
+/** 更多页评价排序类型，便于详情页跳转时带上默认排序。 */
+type ReviewSortKey = 'time' | 'hot'
 
 /** 详情页下划返回阈值，避免轻微滑动触发离开页面。 */
 const DETAIL_BACK_SWIPE_THRESHOLD = 72
+/** 详情页默认预览条数，避免首屏信息过长压缩头图。 */
+const DETAIL_PREVIEW_COUNT = 3
+/** 热度页继续下滑时自动切到评价 tab，让浏览路径更接近内容产品。 */
+const HEAT_TO_REVIEW_SCROLL_TOP = 440
+/** 现场评价最多上传的图片数量，控制弹层操作复杂度。 */
+const REVIEW_MAX_IMAGE_COUNT = 3
 
 /** 详情 tab 配置，单独声明是为了模板渲染更稳定。 */
 const DETAIL_TABS: Array<{ key: DetailTabKey, label: string }> = [
   { key: 'heat', label: '热度' },
-  { key: 'notes', label: '笔记' },
-  { key: 'questions', label: '问答' },
+  { key: 'reviews', label: '评价' },
 ]
 
 definePage({
@@ -56,31 +69,30 @@ const sheetVisible = ref(false)
 const showDiscussionSheet = ref(false)
 /** 讨论弹层动画可见状态。 */
 const discussionSheetVisible = ref(false)
-/** 笔记弹层是否挂载。 */
-const showNoteSheet = ref(false)
-/** 笔记弹层动画可见状态。 */
-const noteSheetVisible = ref(false)
-/** 提问弹层是否挂载。 */
-const showQuestionSheet = ref(false)
-/** 提问弹层动画可见状态。 */
-const questionSheetVisible = ref(false)
-/** 回复弹层是否挂载。 */
-const showAnswerSheet = ref(false)
-/** 回复弹层动画可见状态。 */
-const answerSheetVisible = ref(false)
-/** 当前准备回复的问题 ID，用来把回复提交到正确的问题下。 */
-const answerTargetQuestionId = ref('')
+/** 评价回复弹层是否挂载。 */
+const showReviewReplySheet = ref(false)
+/** 评价回复弹层动画状态。 */
+const reviewReplySheetVisible = ref(false)
+/** 当前准备回复的评价 ID。 */
+const reviewReplyTargetId = ref('')
+/** 互动提醒跳转时目标评价 ID，用于把具体评价带到当前视口。 */
+const highlightedReviewId = ref('')
 /** 详情页触摸起点 Y 坐标。 */
 const detailTouchStartY = ref(0)
 /** 详情页触摸终点 Y 坐标。 */
 const detailTouchEndY = ref(0)
 /** 当前页面滚动位置，仅在页顶允许下划返回。 */
 const detailScrollTop = ref(0)
+/** 评价图片上传中状态，避免用户连续点击触发重复上传。 */
+const isUploadingReviewImage = ref(false)
 
 /** 评价表单，单独存放是为了关闭弹层时可以完整重置。 */
 const reviewForm = reactive({
   rating: 5,
   content: '',
+  images: [] as string[],
+  locationName: '',
+  locationAddress: '',
 })
 
 /** 讨论表单。 */
@@ -88,19 +100,8 @@ const discussionForm = reactive({
   content: '',
 })
 
-/** 笔记表单。 */
-const noteForm = reactive({
-  title: '',
-  content: '',
-})
-
-/** 提问表单，避免和其他输入弹层互相污染。 */
-const questionForm = reactive({
-  question: '',
-})
-
-/** 回复表单，和提问分离后可以持续保留回复上下文。 */
-const answerForm = reactive({
+/** 评价回复表单，单独维护避免和问答回复串值。 */
+const reviewReplyForm = reactive({
   content: '',
 })
 
@@ -115,10 +116,67 @@ const isPersistedSpot = computed(() => /^\d+$/.test(spotIdentity.value))
 const reviews = computed(() => spotDetail.value?.reviews ?? [])
 /** 讨论列表。 */
 const discussions = computed(() => spotDetail.value?.discussions ?? [])
-/** 笔记列表。 */
-const notes = computed(() => spotDetail.value?.notes ?? [])
-/** 问答列表。 */
-const questions = computed(() => spotDetail.value?.questions ?? [])
+/** 评价按热度排序后的列表，当前真实数据只基于点赞数、有图优先级和时间兜底。 */
+const hotReviews = computed(() => {
+  return [...reviews.value].sort((leftReview, rightReview) => {
+    const interactionDelta = getReviewHeatScore(rightReview) - getReviewHeatScore(leftReview)
+    if (interactionDelta !== 0) {
+      return interactionDelta
+    }
+
+    if (rightReview.replyCount !== leftReview.replyCount) {
+      return rightReview.replyCount - leftReview.replyCount
+    }
+
+    if (rightReview.images.length !== leftReview.images.length) {
+      return rightReview.images.length - leftReview.images.length
+    }
+
+    return (Date.parse(rightReview.time) || 0) - (Date.parse(leftReview.time) || 0)
+  })
+})
+/** 评价预览列表。 */
+const previewReviews = computed(() => buildPreviewReviewList(reviews.value, highlightedReviewId.value))
+/** 热度区预览列表，只展示高互动评价。 */
+const previewHotReviews = computed(() => hotReviews.value.slice(0, DETAIL_PREVIEW_COUNT))
+/** 当前地点是否存在联系电话，用来控制右侧电话按钮显隐。 */
+const hasSpotPhone = computed(() => Boolean(spotDetail.value?.phone))
+/** 是否还有更多评价未展示。 */
+const hasMoreReviews = computed(() => reviews.value.length > previewReviews.value.length)
+/** 热度区是否还有更多评价未展示。 */
+const hasMoreHotReviews = computed(() => hotReviews.value.length > previewHotReviews.value.length)
+/** 当前用户是否还没有留下评价，用于强化首评入口。 */
+const hasNoReviews = computed(() => reviews.value.length === 0)
+/** 评价入口说明文案。 */
+const reviewEntryHintText = computed(() => {
+  return hasNoReviews.value ? '还没有评价，点亮星星发布第一条现场评价' : '为这家店补充你的真实体验和图片'
+})
+/** 当前已选择的现场定位展示文案。 */
+const reviewLocationLabel = computed(() => {
+  return [reviewForm.locationName, reviewForm.locationAddress].filter(Boolean).join(' · ')
+})
+/** 当前评价回复目标，用于弹层顶部提示回复对象。 */
+const reviewReplyTarget = computed(() => {
+  return reviews.value.find(review => review.id === reviewReplyTargetId.value) || null
+})
+
+/** 评价图片上传器，复用现有上传 hook，把上传后的地址写回表单。 */
+const { run: runReviewImageUpload } = useUpload<'image'>({
+  success: (uploadResult: IUploadSuccessInfo | string | Record<string, any>) => {
+    const reviewImageUrl = resolveUploadedFileUrl(uploadResult)
+    if (!reviewImageUrl) {
+      uni.showToast({ title: '图片地址解析失败', icon: 'none' })
+      return
+    }
+
+    reviewForm.images = [...reviewForm.images, reviewImageUrl].slice(0, REVIEW_MAX_IMAGE_COUNT)
+    isUploadingReviewImage.value = false
+  },
+  error: () => {
+    isUploadingReviewImage.value = false
+    uni.showToast({ title: '图片上传失败', icon: 'none' })
+  },
+})
 
 /** 头图轮播，接口异常缺图时退回封面，避免出现空白首屏。 */
 const heroImages = computed(() => {
@@ -158,9 +216,8 @@ const reviewDisplayCount = computed(() => reviews.value.length || spotDetail.val
 const heatSummaryChips = computed(() => {
   return [
     { label: '评价', count: reviewDisplayCount.value },
-    { label: '讨论', count: discussions.value.length },
-    { label: '笔记', count: notes.value.length },
-    { label: '问答', count: questions.value.length },
+    { label: '高赞评价', count: hotReviews.value.filter(review => review.likeCount > 0).length },
+    { label: '有图评价', count: reviews.value.filter(review => review.images.length > 0).length },
   ].filter(item => item.count > 0)
 })
 
@@ -215,9 +272,29 @@ const travelSummaryText = computed(() => {
   return spotDetail.value.routeTip
 })
 
+/** 分享主标题，优先突出地点名称和评分。 */
+const shareTitle = computed(() => {
+  if (!spotDetail.value) {
+    return '地点详情'
+  }
+
+  return `${spotDetail.value.name} | ${spotDetail.value.rating.toFixed(1)}分推荐`
+})
+
+/** 分享摘要文案，用于复制和 H5 原生分享。 */
+const shareSummaryText = computed(() => {
+  if (!spotDetail.value) {
+    return ''
+  }
+
+  return [spotDetail.value.name, spotDetail.value.address, travelSummaryText.value].filter(Boolean).join('\n')
+})
+
 onLoad((query) => {
   spotIdentity.value = String(query?.id || '')
   enteredFromMap.value = query?.source === 'map'
+  activeTab.value = query?.tab === 'reviews' ? 'reviews' : 'heat'
+  highlightedReviewId.value = typeof query?.reviewId === 'string' ? query.reviewId : ''
   detailQuery.id = spotIdentity.value
   detailQuery.title = typeof query?.title === 'string' ? query.title : undefined
   detailQuery.address = typeof query?.address === 'string' ? query.address : undefined
@@ -231,8 +308,41 @@ onLoad((query) => {
   void fetchSpotDetail()
 })
 
+watch(activeTab, (tabKey) => {
+  if (tabKey === 'reviews' && highlightedReviewId.value) {
+    scrollToHighlightedReview()
+  }
+})
+
 onPageScroll((event) => {
   detailScrollTop.value = event.scrollTop
+
+  if (activeTab.value === 'heat' && event.scrollTop >= HEAT_TO_REVIEW_SCROLL_TOP) {
+    activeTab.value = 'reviews'
+    return
+  }
+
+  if (activeTab.value === 'reviews' && event.scrollTop <= HEAT_TO_REVIEW_SCROLL_TOP / 2) {
+    activeTab.value = 'heat'
+  }
+})
+
+/** 小程序分享给好友时使用真实详情链接，避免只分享当前会话态。 */
+onShareAppMessage(() => {
+  return {
+    title: shareTitle.value,
+    path: buildSpotDetailSharePath(),
+    imageUrl: spotDetail.value?.cover,
+  }
+})
+
+/** 小程序分享到朋友圈时复用相同内容，减少不同平台文案割裂。 */
+onShareTimeline(() => {
+  return {
+    title: shareTitle.value,
+    query: buildSpotDetailShareQuery(),
+    imageUrl: spotDetail.value?.cover,
+  }
 })
 
 /** 把 query 中的数字参数安全转换成 number，避免 NaN 进入接口。 */
@@ -243,6 +353,141 @@ function parseNumberValue(value: unknown) {
 
   const parsedValue = Number(value)
   return Number.isFinite(parsedValue) ? parsedValue : undefined
+}
+
+/** 向 query 列表安全追加参数，避免 undefined 进入分享链接。 */
+function appendQueryParam(queryList: string[], key: string, value: string | number | undefined) {
+  if (value === undefined || value === null || value === '') {
+    return
+  }
+
+  queryList.push(`${key}=${encodeURIComponent(String(value))}`)
+}
+
+/** 互动跳转时优先把目标评价塞进预览列表，避免只因排序截断而找不到目标内容。 */
+function buildPreviewReviewList(sourceReviews: NonNullable<ISpotDetail['reviews']>, targetReviewId: string, limit = DETAIL_PREVIEW_COUNT) {
+  const defaultPreviewReviews = sourceReviews.slice(0, limit)
+  if (!targetReviewId || defaultPreviewReviews.some(review => review.id === targetReviewId)) {
+    return defaultPreviewReviews
+  }
+
+  const targetReview = sourceReviews.find(review => review.id === targetReviewId)
+  if (!targetReview) {
+    return defaultPreviewReviews
+  }
+
+  return [...defaultPreviewReviews.slice(0, Math.max(limit - 1, 0)), targetReview]
+}
+
+/** 评价卡片锚点，供通知跳转后滚动定位使用。 */
+function getReviewAnchorId(reviewId: string) {
+  return `review-card-${reviewId}`
+}
+
+/** 判断某条评价是否是提醒命中的目标，用于添加高亮样式。 */
+function isHighlightedReview(reviewId: string) {
+  return highlightedReviewId.value === reviewId
+}
+
+/** 提醒跳转到详情后，自动滚动到目标评价附近，减少用户二次查找。 */
+function scrollToHighlightedReview() {
+  if (!highlightedReviewId.value) {
+    return
+  }
+
+  nextTick(() => {
+    let reviewRect: UniApp.NodeInfo | null = null
+    let viewportRect: UniApp.NodeInfo | null = null
+    const selectorQuery = uni.createSelectorQuery()
+    selectorQuery.select(`#${getReviewAnchorId(highlightedReviewId.value)}`).boundingClientRect((result) => {
+      reviewRect = result as UniApp.NodeInfo
+    })
+    selectorQuery.selectViewport().scrollOffset((result) => {
+      viewportRect = result as UniApp.NodeInfo
+    })
+    selectorQuery.exec(() => {
+      if (!reviewRect || !viewportRect) {
+        return
+      }
+
+      uni.pageScrollTo({
+        scrollTop: Math.max((reviewRect.top || 0) + (viewportRect.scrollTop || 0) - 96, 0),
+        duration: 280,
+      })
+    })
+  })
+}
+
+/** 构建当前详情页的 query 参数，更多页和分享都会复用。 */
+function buildSpotDetailShareQuery() {
+  const queryList: string[] = []
+
+  appendQueryParam(queryList, 'id', spotIdentity.value)
+  appendQueryParam(queryList, 'title', detailQuery.title)
+  appendQueryParam(queryList, 'address', detailQuery.address)
+  appendQueryParam(queryList, 'latitude', detailQuery.latitude)
+  appendQueryParam(queryList, 'longitude', detailQuery.longitude)
+  appendQueryParam(queryList, 'distance', detailQuery.distance)
+  appendQueryParam(queryList, 'category', detailQuery.category)
+  appendQueryParam(queryList, 'district', detailQuery.district)
+  appendQueryParam(queryList, 'provider', detailQuery.provider)
+
+  return queryList.join('&')
+}
+
+/** 构建当前详情页完整分享路径，确保外部打开后还能还原地点上下文。 */
+function buildSpotDetailSharePath() {
+  const queryString = buildSpotDetailShareQuery()
+  return queryString ? `/pages/spot/detail?${queryString}` : '/pages/spot/detail'
+}
+
+/** 构建“更多内容”页面路径，承接完整列表。 */
+function buildSpotMorePagePath(contentType: SpotMoreContentType) {
+  const queryString = buildSpotDetailShareQuery()
+  const typeQuery = `type=${encodeURIComponent(contentType)}`
+
+  return queryString ? `/pages/spot/more?${typeQuery}&${queryString}` : `/pages/spot/more?${typeQuery}`
+}
+
+/** 构建评价更多页路径，可附带默认排序和筛选状态。 */
+function buildReviewMorePagePath(sortKey: ReviewSortKey, withImagesOnly = false) {
+  const queryString = buildSpotDetailShareQuery()
+  const extraQuery = [
+    'type=reviews',
+    `sort=${encodeURIComponent(sortKey)}`,
+    `withImages=${withImagesOnly ? '1' : '0'}`,
+  ].join('&')
+
+  return queryString ? `/pages/spot/more?${extraQuery}&${queryString}` : `/pages/spot/more?${extraQuery}`
+}
+
+/** 上传结果可能返回完整 URL 或相对路径，这里统一规范成可直接展示的地址。 */
+function resolveUploadedFileUrl(uploadResult: IUploadSuccessInfo | string | Record<string, any>) {
+  const uploadResultRecord = typeof uploadResult === 'object' && uploadResult !== null
+    ? uploadResult as Record<string, any>
+    : null
+  const rawUrl = typeof uploadResult === 'string'
+    ? uploadResult
+    : String(uploadResultRecord?.storagePath || uploadResultRecord?.url || '')
+
+  if (!rawUrl) {
+    return ''
+  }
+
+  if (/^https?:\/\//.test(rawUrl)) {
+    return rawUrl
+  }
+
+  return `${getEnvBaseUrl().replace(/\/$/, '')}/${rawUrl.replace(/^\//, '')}`
+}
+
+/** 重置评价表单，确保再次打开弹层时不会残留上一次的图片和定位。 */
+function resetReviewForm(initialRating = 5) {
+  reviewForm.rating = initialRating
+  reviewForm.content = ''
+  reviewForm.images = []
+  reviewForm.locationName = ''
+  reviewForm.locationAddress = ''
 }
 
 /** 拉取地点详情，成功后顺便同步收藏和足迹。 */
@@ -260,6 +505,10 @@ async function fetchSpotDetail() {
 
     if (isPersistedSpot.value) {
       footprintStore.addFootprint(Number(spotIdentity.value))
+    }
+
+    if (activeTab.value === 'reviews' && highlightedReviewId.value) {
+      scrollToHighlightedReview()
     }
   }
   catch (error) {
@@ -284,16 +533,52 @@ function goBack() {
   uni.switchTab({ url: '/pages/index/index' })
 }
 
-/** 分享按钮先退化为复制地点名称和地址，兼容多端且不依赖平台分享面板。 */
-function shareSpot() {
+/** 复制文本到剪贴板，统一处理成功提示。 */
+function copyText(text: string, toastTitle: string) {
+  uni.setClipboardData({
+    data: text,
+    success: () => {
+      uni.showToast({ title: toastTitle, icon: 'none' })
+    },
+  })
+}
+
+/** 分享按钮优先使用原生分享，降级时提供复制地点信息和复制链接。 */
+async function shareSpot() {
   if (!spotDetail.value) {
     return
   }
 
-  uni.setClipboardData({
-    data: `${spotDetail.value.name} ${spotDetail.value.address}`,
-    success: () => {
-      uni.showToast({ title: '地点信息已复制', icon: 'none' })
+  const sharePath = buildSpotDetailSharePath()
+  const shareText = shareSummaryText.value
+
+  if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    try {
+      await navigator.share({
+        title: shareTitle.value,
+        text: shareText,
+        url: new URL(sharePath, window.location.origin).toString(),
+      })
+      return
+    }
+    catch (error: any) {
+      if (error?.name === 'AbortError') {
+        return
+      }
+
+      console.error('H5 分享失败，已降级为复制操作', error)
+    }
+  }
+
+  uni.showActionSheet({
+    itemList: ['复制地点信息', '复制详情链接'],
+    success: (result) => {
+      if (result.tapIndex === 0) {
+        copyText(shareText, '地点信息已复制')
+        return
+      }
+
+      copyText(sharePath, '详情链接已复制')
     },
   })
 }
@@ -301,6 +586,16 @@ function shareSpot() {
 /** 星级渲染保留半星简化表达，符合当前页面轻量展示需求。 */
 function renderStars(rating: number) {
   return '★'.repeat(Math.floor(rating)) + (rating % 1 >= 0.5 ? '☆' : '')
+}
+
+/** 评价热度分数由点赞数和回复数共同决定，避免只看单一维度。 */
+function getReviewHeatScore(review: NonNullable<ISpotDetail['reviews']>[number]) {
+  return review.likeCount + review.replyCount
+}
+
+/** 评价下方只预览少量回复，避免卡片高度失控。 */
+function getPreviewReviewReplies(review: NonNullable<ISpotDetail['reviews']>[number]) {
+  return review.replies.slice(0, 2)
 }
 
 /** 距离统一格式化为 m/km，避免不同入口展示不一致。 */
@@ -389,6 +684,20 @@ async function openNavigation() {
   }, mapSettingStore.navigationMapApp)
 }
 
+/** 打开完整内容页，承接详情页未展示的剩余真实内容。 */
+function openMorePage(contentType: SpotMoreContentType) {
+  uni.navigateTo({
+    url: buildSpotMorePagePath(contentType),
+  })
+}
+
+/** 从热度区进入更多评价页时默认按热度排序。 */
+function openHotReviewPage() {
+  uni.navigateTo({
+    url: buildReviewMorePagePath('hot'),
+  })
+}
+
 /** 拨打商家电话，缺失号码时给出明确反馈。 */
 function callPhone() {
   if (!spotDetail.value?.phone) {
@@ -416,8 +725,27 @@ function openReviewPanel() {
     return
   }
 
-  reviewForm.rating = 5
-  reviewForm.content = ''
+  resetReviewForm(5)
+  showReviewSheet.value = true
+
+  nextTick(() => {
+    sheetVisible.value = true
+  })
+}
+
+/** 点击评分入口时可以带着目标星级打开评价弹层，减少用户额外点击。 */
+function openReviewPanelWithRating(star: number) {
+  if (!tokenStore.updateNowTime().hasLogin) {
+    toLoginPage()
+    return
+  }
+
+  if (!isPersistedSpot.value) {
+    uni.showToast({ title: '地点信息尚未准备好，请稍后重试', icon: 'none' })
+    return
+  }
+
+  resetReviewForm(star)
   showReviewSheet.value = true
 
   nextTick(() => {
@@ -430,6 +758,7 @@ function closeReviewPanel() {
   sheetVisible.value = false
   setTimeout(() => {
     showReviewSheet.value = false
+    isUploadingReviewImage.value = false
   }, 260)
 }
 
@@ -461,85 +790,63 @@ function closeDiscussionPanel() {
   }, 260)
 }
 
-/** 打开笔记弹层。 */
-function openNotePanel() {
+/** 给评价添加图片，达到上限时直接提示。 */
+function addReviewImage() {
+  if (reviewForm.images.length >= REVIEW_MAX_IMAGE_COUNT) {
+    uni.showToast({ title: `最多上传${REVIEW_MAX_IMAGE_COUNT}张图片`, icon: 'none' })
+    return
+  }
+
+  isUploadingReviewImage.value = true
+  runReviewImageUpload()
+}
+
+/** 删除评价里的某一张图片。 */
+function removeReviewImage(imageUrl: string) {
+  reviewForm.images = reviewForm.images.filter(item => item !== imageUrl)
+}
+
+/** 给评价补充现场定位，优先使用 chooseLocation 让用户明确确认位置。 */
+function chooseReviewLocation() {
+  uni.chooseLocation({
+    success: (locationResult) => {
+      reviewForm.locationName = locationResult.name || spotDetail.value?.name || ''
+      reviewForm.locationAddress = locationResult.address || spotDetail.value?.address || ''
+    },
+    fail: () => {
+      uni.showToast({ title: '定位选择已取消', icon: 'none' })
+    },
+  })
+}
+
+/** 清空评价中已附加的定位信息。 */
+function clearReviewLocation() {
+  reviewForm.locationName = ''
+  reviewForm.locationAddress = ''
+}
+
+/** 打开评价回复弹层并记录当前回复目标。 */
+function openReviewReplyPanel(reviewId: string) {
   if (!tokenStore.updateNowTime().hasLogin) {
     toLoginPage()
     return
   }
 
-  if (!isPersistedSpot.value) {
-    uni.showToast({ title: '地点信息尚未准备好，请稍后重试', icon: 'none' })
-    return
-  }
-
-  noteForm.title = ''
-  noteForm.content = ''
-  showNoteSheet.value = true
+  reviewReplyTargetId.value = reviewId
+  reviewReplyForm.content = ''
+  showReviewReplySheet.value = true
 
   nextTick(() => {
-    noteSheetVisible.value = true
+    reviewReplySheetVisible.value = true
   })
 }
 
-/** 关闭笔记弹层。 */
-function closeNotePanel() {
-  noteSheetVisible.value = false
+/** 关闭评价回复弹层并清空目标评价。 */
+function closeReviewReplyPanel() {
+  reviewReplySheetVisible.value = false
   setTimeout(() => {
-    showNoteSheet.value = false
-  }, 260)
-}
-
-/** 打开提问弹层。 */
-function openQuestionPanel() {
-  if (!tokenStore.updateNowTime().hasLogin) {
-    toLoginPage()
-    return
-  }
-
-  if (!isPersistedSpot.value) {
-    uni.showToast({ title: '地点信息尚未准备好，请稍后重试', icon: 'none' })
-    return
-  }
-
-  questionForm.question = ''
-  showQuestionSheet.value = true
-
-  nextTick(() => {
-    questionSheetVisible.value = true
-  })
-}
-
-/** 关闭提问弹层。 */
-function closeQuestionPanel() {
-  questionSheetVisible.value = false
-  setTimeout(() => {
-    showQuestionSheet.value = false
-  }, 260)
-}
-
-/** 打开回复弹层并记录当前回复目标。 */
-function openAnswerPanel(questionId: string) {
-  if (!tokenStore.updateNowTime().hasLogin) {
-    toLoginPage()
-    return
-  }
-
-  answerTargetQuestionId.value = questionId
-  answerForm.content = ''
-  showAnswerSheet.value = true
-
-  nextTick(() => {
-    answerSheetVisible.value = true
-  })
-}
-
-/** 关闭回复弹层并清空目标问题。 */
-function closeAnswerPanel() {
-  answerSheetVisible.value = false
-  setTimeout(() => {
-    showAnswerSheet.value = false
-    answerTargetQuestionId.value = ''
+    showReviewReplySheet.value = false
+    reviewReplyTargetId.value = ''
   }, 260)
 }
 
@@ -564,6 +871,9 @@ async function submitReview() {
       spotId: Number(spotIdentity.value),
       rating: reviewForm.rating,
       content: reviewForm.content.trim(),
+      images: reviewForm.images,
+      locationName: reviewForm.locationName || undefined,
+      locationAddress: reviewForm.locationAddress || undefined,
     })
 
     userContentStore.addReview({
@@ -575,18 +885,52 @@ async function submitReview() {
       rating: createdReview.rating,
       content: createdReview.content,
       images: createdReview.images,
+      locationName: createdReview.locationName,
+      locationAddress: createdReview.locationAddress,
       time: createdReview.time,
       likeCount: createdReview.likeCount,
+      likedByCurrentUser: createdReview.likedByCurrentUser,
+      replyCount: createdReview.replyCount,
+      replies: createdReview.replies,
       isMine: true,
     })
 
     await fetchSpotDetail()
-    activeTab.value = 'heat'
+    activeTab.value = 'reviews'
     closeReviewPanel()
     uni.showToast({ title: '评价成功', icon: 'success' })
   }
   catch (error) {
     console.error('提交评价失败', error)
+  }
+}
+
+/** 评价点赞切到真实接口后，热度排序会即时反映点赞变化。 */
+async function likeReview(reviewId: string) {
+  if (!tokenStore.updateNowTime().hasLogin) {
+    toLoginPage()
+    return
+  }
+
+  if (!spotDetail.value) {
+    return
+  }
+
+  const review = spotDetail.value.reviews.find(item => item.id === reviewId)
+  if (!review) {
+    return
+  }
+
+  try {
+    const result = await toggleSpotReviewLike({
+      reviewId: Number(reviewId),
+    })
+
+    review.likedByCurrentUser = result.liked
+    review.likeCount = result.likeCount
+  }
+  catch (error) {
+    console.error('评价点赞失败', error)
   }
 }
 
@@ -622,107 +966,69 @@ async function submitDiscussion() {
   }
 }
 
-/** 提交笔记后保持在笔记 tab，符合用户心智。 */
-async function submitNote() {
-  if (!spotDetail.value || !isPersistedSpot.value) {
+/** 提交评价回复后就地更新目标评价的回复列表和回复数。 */
+async function submitReviewReply() {
+  if (!spotDetail.value || !reviewReplyTargetId.value) {
     return
   }
 
-  if (!noteForm.title.trim()) {
-    uni.showToast({ title: '请输入笔记标题', icon: 'none' })
-    return
-  }
-
-  if (!noteForm.content.trim()) {
-    uni.showToast({ title: '请输入笔记内容', icon: 'none' })
-    return
-  }
-
-  try {
-    const createdNote = await createSpotNote({
-      spotId: Number(spotIdentity.value),
-      title: noteForm.title.trim(),
-      content: noteForm.content.trim(),
-    })
-
-    spotDetail.value.notes.unshift(createdNote)
-    userContentStore.addNote({
-      ...createdNote,
-      spotId: Number(spotIdentity.value),
-      spotName: spotDetail.value.name,
-    })
-    activeTab.value = 'notes'
-    closeNotePanel()
-    uni.showToast({ title: '笔记已发布', icon: 'success' })
-  }
-  catch (error) {
-    console.error('发布笔记失败', error)
-  }
-}
-
-/** 提交提问后保持在问答 tab，方便继续跟进回复。 */
-async function submitQuestion() {
-  if (!spotDetail.value || !isPersistedSpot.value) {
-    return
-  }
-
-  if (!questionForm.question.trim()) {
-    uni.showToast({ title: '请输入问题内容', icon: 'none' })
-    return
-  }
-
-  try {
-    const createdQuestion = await createSpotQuestion({
-      spotId: Number(spotIdentity.value),
-      question: questionForm.question.trim(),
-    })
-
-    spotDetail.value.questions.unshift(createdQuestion)
-    userContentStore.addQuestion({
-      ...createdQuestion,
-      spotId: Number(spotIdentity.value),
-      spotName: spotDetail.value.name,
-    })
-    activeTab.value = 'questions'
-    closeQuestionPanel()
-    uni.showToast({ title: '提问已发布', icon: 'success' })
-  }
-  catch (error) {
-    console.error('发布提问失败', error)
-  }
-}
-
-/** 提交回复后就地插入目标问题，避免整页刷新。 */
-async function submitAnswer() {
-  if (!spotDetail.value || !answerTargetQuestionId.value) {
-    return
-  }
-
-  if (!answerForm.content.trim()) {
+  if (!reviewReplyForm.content.trim()) {
     uni.showToast({ title: '请输入回复内容', icon: 'none' })
     return
   }
 
-  const question = spotDetail.value.questions.find(item => item.id === answerTargetQuestionId.value)
-  if (!question) {
+  const review = spotDetail.value.reviews.find(item => item.id === reviewReplyTargetId.value)
+  if (!review) {
     return
   }
 
   try {
-    const createdAnswer = await createSpotQuestionAnswer({
-      questionId: Number(answerTargetQuestionId.value),
-      content: answerForm.content.trim(),
+    const createdReply = await createSpotReviewReply({
+      reviewId: Number(reviewReplyTargetId.value),
+      content: reviewReplyForm.content.trim(),
     })
 
-    question.answers.push(createdAnswer)
-    userContentStore.addAnswer(answerTargetQuestionId.value, createdAnswer)
-    activeTab.value = 'questions'
-    closeAnswerPanel()
+    review.replies = [...review.replies, createdReply]
+    review.replyCount = review.replies.length
+    closeReviewReplyPanel()
     uni.showToast({ title: '回复已发布', icon: 'success' })
   }
   catch (error) {
-    console.error('发布回复失败', error)
+    console.error('发布评价回复失败', error)
   }
+}
+
+/** 删除评价回复，优先在详情页原位更新，减少用户返回我的页处理。 */
+async function removeReviewReply(reviewId: string, replyId: string) {
+  if (!spotDetail.value) {
+    return
+  }
+
+  uni.showModal({
+    title: '提示',
+    content: '确定要删除这条回复吗？',
+    success: async (res) => {
+      if (!res.confirm) {
+        return
+      }
+
+      try {
+        await deleteMySpotReviewReply(Number(replyId))
+
+        const review = spotDetail.value?.reviews.find(item => item.id === reviewId)
+        if (!review) {
+          return
+        }
+
+        review.replies = review.replies.filter(item => item.id !== replyId)
+        review.replyCount = review.replies.length
+        uni.showToast({ title: '已删除', icon: 'none' })
+      }
+      catch (error) {
+        console.error('删除评价回复失败', error)
+      }
+    },
+  })
 }
 
 /** 删除评价后同步更新当前列表。 */
@@ -804,35 +1110,6 @@ async function removeDiscussion(discussionId: string) {
       }
     },
   })
-}
-
-/** 笔记点赞。 */
-async function likeNote(noteId: string) {
-  if (!tokenStore.updateNowTime().hasLogin) {
-    toLoginPage()
-    return
-  }
-
-  if (!spotDetail.value) {
-    return
-  }
-
-  const note = spotDetail.value.notes.find(item => item.id === noteId)
-  if (!note) {
-    return
-  }
-
-  try {
-    const result = await toggleSpotNoteLike({
-      noteId: Number(noteId),
-    })
-
-    note.likedByCurrentUser = result.liked
-    note.likeCount = result.likeCount
-  }
-  catch (error) {
-    console.error('笔记点赞失败', error)
-  }
 }
 
 /** 记录详情页触摸起点，仅用于地图来源的下划返回。 */
@@ -938,59 +1215,49 @@ function onDetailTouchEnd() {
           <view class="hero-address-block">
             <view class="hero-address-text">
               {{ spotDetail.address }}
-              <text class="hero-address-arrow"> ></text>
-            </view>
-            <view class="hero-route-text">
-              {{ travelSummaryText }}
+              <text class="hero-address-arrow">›</text>
             </view>
           </view>
         </view>
 
-        <view class="hero-nav-btn" @click="openNavigation">
-          <view class="i-carbon-navigation text-24px text-white" />
-          <text class="hero-nav-btn__text">导航</text>
+        <!-- 右侧操作区：导航常驻，存在电话时并排补充电话入口。 -->
+        <view class="hero-side-actions">
+          <view class="hero-side-btn" @click="openNavigation">
+            <view class="i-carbon-location-filled text-22px text-white" />
+            <text class="hero-side-btn__text">导航</text>
+          </view>
+          <view v-if="hasSpotPhone" class="hero-side-btn" @click="callPhone">
+            <view class="i-carbon-phone text-22px text-white" />
+            <text class="hero-side-btn__text">电话</text>
+          </view>
         </view>
       </view>
 
       <!-- 白色内容承接区：通过更轻的白色面板承接头图，弱化工具感，靠近小红书内容页质感。 -->
       <view class="detail-shell">
-        <view class="brief-card">
-          <view class="brief-card__summary">
-            <view class="brief-card__headline">
-              地点简介
+        <view class="quick-review-card">
+          <view class="quick-review-card__top">
+            <view>
+              <view class="quick-review-card__title">
+                {{ hasNoReviews ? '点亮评分，发布首条评价' : '现场评价' }}
+              </view>
+              <view class="quick-review-card__subtitle">
+                {{ reviewEntryHintText }}
+              </view>
             </view>
-            <view class="brief-card__description">
-              {{ spotDetail.description }}
-            </view>
-          </view>
-
-          <view class="brief-card__stats">
-            <view class="brief-stat">
-              <text class="brief-stat__value">{{ spotDetail.rating.toFixed(1) }}</text>
-              <text class="brief-stat__label">评分</text>
-            </view>
-            <view class="brief-stat">
-              <text class="brief-stat__value">{{ formatCount(reviewDisplayCount) }}</text>
-              <text class="brief-stat__label">评价</text>
-            </view>
-            <view class="brief-stat">
-              <text class="brief-stat__value">¥{{ spotDetail.avgPrice || '--' }}</text>
-              <text class="brief-stat__label">人均</text>
+            <view class="quick-review-card__action" @click="openReviewPanel">
+              去评价
             </view>
           </view>
 
-          <view class="detail-actions detail-actions--compact">
-            <view class="detail-action" @click="toggleFavorite">
-              <view :class="isFavorited ? 'i-carbon-favorite-filled text-orange-500' : 'i-carbon-favorite text-gray-500'" class="text-18px" />
-              <text class="detail-action__text">{{ isFavorited ? '已收藏' : '收藏' }}</text>
-            </view>
-            <view class="detail-action" @click="openNavigation">
-              <view class="i-carbon-navigation text-18px text-gray-500" />
-              <text class="detail-action__text">路线</text>
-            </view>
-            <view class="detail-action" @click="callPhone">
-              <view class="i-carbon-phone text-18px text-gray-500" />
-              <text class="detail-action__text">电话</text>
+          <view class="quick-review-stars">
+            <view
+              v-for="star in 5"
+              :key="`quick-star-${star}`"
+              class="quick-review-star"
+              @click="openReviewPanelWithRating(star)"
+            >
+              ★
             </view>
           </view>
         </view>
@@ -1010,20 +1277,26 @@ function onDetailTouchEnd() {
           </view>
         </view>
 
-        <!-- 热度页：先展示讨论，再承接真实评价，层级更接近社区内容流。 -->
+        <!-- 热度页：只展示评价里的高互动内容，更多时进入评价页按热度继续浏览。 -->
         <view v-if="activeTab === 'heat'" class="content-panel">
           <view class="panel-section">
             <view class="panel-header">
               <view>
                 <view class="panel-title">
-                  讨论热度
+                  热门评价
                 </view>
                 <view class="panel-subtitle">
-                  全部来自当前地点的真实内容统计
+                  优先展示点赞更高、图片更完整的真实评价，继续下滑会自动切到评价
                 </view>
               </view>
-              <view class="panel-action" @click="openDiscussionPanel">
-                发讨论
+              <view class="panel-header__actions">
+                <view v-if="hasMoreHotReviews" class="panel-link" @click="openHotReviewPage">
+                  更多谈论
+                  <text class="panel-link__arrow">›</text>
+                </view>
+                <view class="panel-action" @click="openReviewPanel">
+                  写评价
+                </view>
               </view>
             </view>
 
@@ -1033,42 +1306,99 @@ function onDetailTouchEnd() {
               </view>
             </view>
 
-            <view v-if="discussions.length === 0" class="empty-card">
-              暂无讨论内容，来分享第一条到店体验吧
+            <view v-if="hotReviews.length === 0" class="empty-card">
+              暂无热门评价，来留下第一条到店体验吧
             </view>
 
-            <view v-for="discussion in discussions" :key="discussion.id" class="content-card">
+            <view v-for="review in previewHotReviews" :key="review.id" class="content-card content-card--white">
               <view class="content-card__header">
                 <view class="author-row">
-                  <image :src="discussion.avatar" class="author-avatar" mode="aspectFill" />
+                  <image :src="review.avatar" class="author-avatar" mode="aspectFill" />
                   <view class="author-info">
                     <view class="author-name">
-                      {{ discussion.userName }}
+                      {{ review.userName }}
                     </view>
                     <view class="author-time">
-                      {{ discussion.time }}
+                      {{ review.time }}
                     </view>
                   </view>
                 </view>
 
                 <view class="card-side-actions">
-                  <view v-if="discussion.isMine" class="mini-action" @click="removeDiscussion(discussion.id)">
+                  <view class="review-stars">
+                    {{ renderStars(review.rating) }}
+                  </view>
+                  <view v-if="review.images.length" class="hot-review-tag">
+                    有图
+                  </view>
+                  <view v-if="review.isMine" class="mini-action" @click="removeReview(review.id)">
                     <view class="i-carbon-trash-can text-14px text-gray-400" />
                     <text>删除</text>
-                  </view>
-                  <view class="mini-action" @click="likeDiscussion(discussion.id)">
-                    <view :class="discussion.likedByCurrentUser ? 'i-carbon-thumbs-up-filled text-orange-500' : 'i-carbon-thumbs-up text-gray-400'" class="text-14px" />
-                    <text>{{ discussion.likeCount }}</text>
                   </view>
                 </view>
               </view>
 
               <view class="card-text">
-                {{ discussion.content }}
+                {{ review.content }}
+              </view>
+
+              <view v-if="review.locationName || review.locationAddress" class="review-location-row">
+                <view class="i-carbon-location-filled text-14px text-orange-500" />
+                <text class="review-location-row__text">
+                  {{ review.locationName || review.locationAddress }}
+                </text>
+              </view>
+
+              <view v-if="review.images.length" class="image-row">
+                <image
+                  v-for="image in review.images"
+                  :key="`${review.id}-${image}`"
+                  :src="image"
+                  class="content-image"
+                  mode="aspectFill"
+                  @click="previewImages(review.images, image)"
+                />
+              </view>
+
+              <view class="card-footer">
+                <view class="mini-action" @click="likeReview(review.id)">
+                  <view :class="review.likedByCurrentUser ? 'i-carbon-thumbs-up-filled text-orange-500' : 'i-carbon-thumbs-up text-14px text-gray-400'" class="text-14px" />
+                  <text>{{ review.likeCount }}</text>
+                </view>
+                <view class="mini-action" @click="openReviewReplyPanel(review.id)">
+                  <view class="i-carbon-chat text-14px text-gray-400" />
+                  <text>{{ review.replyCount }}</text>
+                </view>
+              </view>
+
+              <view v-if="review.replies.length" class="review-reply-list">
+                <view v-for="reply in getPreviewReviewReplies(review)" :key="reply.id" class="review-reply-item">
+                  <image :src="reply.avatar" class="review-reply-item__avatar" mode="aspectFill" />
+                  <view class="review-reply-item__body">
+                    <view class="review-reply-item__header">
+                      <text class="author-name author-name--compact">{{ reply.userName }}</text>
+                      <view class="review-reply-item__actions">
+                        <text class="author-time">{{ reply.time }}</text>
+                        <view v-if="reply.isMine" class="mini-action" @click="removeReviewReply(review.id, reply.id)">
+                          <view class="i-carbon-trash-can text-12px text-gray-400" />
+                        </view>
+                      </view>
+                    </view>
+                    <view class="review-reply-item__text">
+                      {{ reply.content }}
+                    </view>
+                  </view>
+                </view>
+                <view v-if="review.replyCount > getPreviewReviewReplies(review).length" class="review-reply-more" @click="openHotReviewPage">
+                  查看全部 {{ review.replyCount }} 条回复
+                </view>
               </view>
             </view>
           </view>
+        </view>
 
+        <!-- 评价页：笔记位替换成真实评价流，专门承接评分、图文和现场定位内容。 -->
+        <view v-else class="content-panel">
           <view class="panel-section panel-section--split">
             <view class="panel-header">
               <view>
@@ -1076,11 +1406,17 @@ function onDetailTouchEnd() {
                   用户评价
                 </view>
                 <view class="panel-subtitle">
-                  真实到店反馈会直接影响综合评分
+                  评分、图文和现场定位都会展示在这里
                 </view>
               </view>
-              <view class="panel-action" @click="openReviewPanel">
-                写评价
+              <view class="panel-header__actions">
+                <view v-if="hasMoreReviews" class="panel-link" @click="openMorePage('reviews')">
+                  全部
+                  <text class="panel-link__arrow">›</text>
+                </view>
+                <view class="panel-action" @click="openReviewPanel">
+                  写评价
+                </view>
               </view>
             </view>
 
@@ -1088,7 +1424,13 @@ function onDetailTouchEnd() {
               还没有评价，来留下第一条印象吧
             </view>
 
-            <view v-for="review in reviews" :key="review.id" class="content-card content-card--white">
+            <view
+              v-for="review in previewReviews"
+              :id="getReviewAnchorId(review.id)"
+              :key="review.id"
+              class="content-card content-card--white"
+              :class="{ 'content-card--highlight': isHighlightedReview(review.id) }"
+            >
               <view class="content-card__header">
                 <view class="author-row">
                   <image :src="review.avatar" class="author-avatar" mode="aspectFill" />
@@ -1117,6 +1459,13 @@ function onDetailTouchEnd() {
                 {{ review.content }}
               </view>
 
+              <view v-if="review.locationName || review.locationAddress" class="review-location-row">
+                <view class="i-carbon-location-filled text-14px text-orange-500" />
+                <text class="review-location-row__text">
+                  {{ review.locationName || review.locationAddress }}
+                </text>
+              </view>
+
               <view v-if="review.images.length" class="image-row">
                 <image
                   v-for="image in review.images"
@@ -1129,125 +1478,36 @@ function onDetailTouchEnd() {
               </view>
 
               <view class="card-footer">
-                <view class="i-carbon-thumbs-up text-14px text-gray-400" />
-                <text>{{ review.likeCount }}</text>
-              </view>
-            </view>
-          </view>
-        </view>
-
-        <!-- 笔记页：改为双列卡片流，让笔记展示更像内容社区而不是列表。 -->
-        <view v-else-if="activeTab === 'notes'" class="content-panel">
-          <view class="panel-section">
-            <view class="panel-header">
-              <view>
-                <view class="panel-title">
-                  用户笔记
+                <view class="mini-action" @click="likeReview(review.id)">
+                  <view :class="review.likedByCurrentUser ? 'i-carbon-thumbs-up-filled text-orange-500' : 'i-carbon-thumbs-up text-14px text-gray-400'" class="text-14px" />
+                  <text>{{ review.likeCount }}</text>
                 </view>
-                <view class="panel-subtitle">
-                  真实探店记录与路线心得
+                <view class="mini-action" @click="openReviewReplyPanel(review.id)">
+                  <view class="i-carbon-chat text-14px text-gray-400" />
+                  <text>{{ review.replyCount }}</text>
                 </view>
               </view>
-              <view class="panel-action" @click="openNotePanel">
-                写笔记
-              </view>
-            </view>
 
-            <view v-if="notes.length === 0" class="empty-card">
-              暂无笔记内容，来整理第一篇探店记录吧
-            </view>
-
-            <view v-if="notes.length > 0" class="notes-grid">
-              <view v-for="note in notes" :key="note.id" class="note-card">
-                <image :src="note.cover" class="note-card__cover" mode="aspectFill" @click="previewImages([note.cover], note.cover)" />
-
-                <view class="note-card__body">
-                  <view class="note-card__title">
-                    {{ note.title }}
-                  </view>
-                  <view class="card-text note-card__text">
-                    {{ note.content }}
-                  </view>
-
-                  <view class="note-card__footer">
-                    <view class="author-row author-row--compact">
-                      <image :src="note.avatar" class="author-avatar author-avatar--small" mode="aspectFill" />
-                      <view class="author-info">
-                        <view class="author-name author-name--compact">
-                          {{ note.userName }}
+              <view v-if="review.replies.length" class="review-reply-list">
+                <view v-for="reply in getPreviewReviewReplies(review)" :key="reply.id" class="review-reply-item">
+                  <image :src="reply.avatar" class="review-reply-item__avatar" mode="aspectFill" />
+                  <view class="review-reply-item__body">
+                    <view class="review-reply-item__header">
+                      <text class="author-name author-name--compact">{{ reply.userName }}</text>
+                      <view class="review-reply-item__actions">
+                        <text class="author-time">{{ reply.time }}</text>
+                        <view v-if="reply.isMine" class="mini-action" @click="removeReviewReply(review.id, reply.id)">
+                          <view class="i-carbon-trash-can text-12px text-gray-400" />
                         </view>
                       </view>
                     </view>
-
-                    <view class="mini-action" @click="likeNote(note.id)">
-                      <view :class="note.likedByCurrentUser ? 'i-carbon-thumbs-up-filled text-orange-500' : 'i-carbon-thumbs-up text-gray-400'" class="text-14px" />
-                      <text>{{ note.likeCount }}</text>
+                    <view class="review-reply-item__text">
+                      {{ reply.content }}
                     </view>
                   </view>
                 </view>
-              </view>
-            </view>
-          </view>
-        </view>
-
-        <!-- 问答页：保留真实问答，但收紧信息密度，避免像表单回执。 -->
-        <view v-else class="content-panel">
-          <view class="panel-section">
-            <view class="panel-header">
-              <view>
-                <view class="panel-title">
-                  热门问答
-                </view>
-                <view class="panel-subtitle">
-                  排队、路线、适合人群等问题都可以直接交流
-                </view>
-              </view>
-              <view class="panel-action" @click="openQuestionPanel">
-                去提问
-              </view>
-            </view>
-
-            <view v-if="questions.length === 0" class="empty-card">
-              暂无问答内容，来提第一个问题吧
-            </view>
-
-            <view v-for="question in questions" :key="question.id" class="content-card content-card--white">
-              <view class="content-card__header">
-                <view class="author-row">
-                  <image :src="question.askerAvatar" class="author-avatar" mode="aspectFill" />
-                  <view class="author-info">
-                    <view class="author-name">
-                      {{ question.asker }}
-                    </view>
-                    <view class="author-time">
-                      {{ question.time }}
-                    </view>
-                  </view>
-                </view>
-
-                <view class="panel-action panel-action--ghost" @click="openAnswerPanel(question.id)">
-                  回复
-                </view>
-              </view>
-
-              <view class="question-title">
-                {{ question.question }}
-              </view>
-
-              <view v-if="question.answers.length === 0" class="question-empty">
-                还没有人回复，欢迎分享你的经验
-              </view>
-
-              <view v-for="answer in question.answers" :key="answer.id" class="answer-card">
-                <image :src="answer.avatar" class="answer-card__avatar" mode="aspectFill" />
-                <view class="answer-card__content">
-                  <view class="answer-card__header">
-                    <text class="author-name">{{ answer.userName }}</text>
-                    <text class="author-time">{{ answer.time }}</text>
-                  </view>
-                  <view class="answer-card__text">
-                    {{ answer.content }}
-                  </view>
+                <view v-if="review.replyCount > getPreviewReviewReplies(review).length" class="review-reply-more" @click="openMorePage('reviews')">
+                  查看全部 {{ review.replyCount }} 条回复
                 </view>
               </view>
             </view>
@@ -1260,16 +1520,41 @@ function onDetailTouchEnd() {
     <view v-if="showReviewSheet" class="review-sheet" :class="{ 'review-sheet--show': sheetVisible }">
       <view class="sheet-handle" />
       <view class="review-sheet__title">
-        写评价
+        现场评价
       </view>
       <view class="review-star-row">
         <view v-for="star in 5" :key="star" class="review-star" :class="star <= reviewForm.rating ? 'review-star--active' : ''" @click="setReviewRating(star)">
           ★
         </view>
       </view>
+      <view class="review-sheet__toolbar">
+        <view class="review-sheet__toolbar-btn" @click="addReviewImage">
+          <view class="i-carbon-image text-16px text-orange-500" />
+          <text>{{ isUploadingReviewImage ? '上传中...' : '添加图片' }}</text>
+        </view>
+        <view class="review-sheet__toolbar-btn" @click="chooseReviewLocation">
+          <view class="i-carbon-location-filled text-16px text-orange-500" />
+          <text>{{ reviewLocationLabel ? '重新定位' : '添加定位' }}</text>
+        </view>
+      </view>
+      <view v-if="reviewForm.images.length" class="review-image-row">
+        <view v-for="image in reviewForm.images" :key="image" class="review-image-card">
+          <image :src="image" class="review-image-card__image" mode="aspectFill" @click="previewImages(reviewForm.images, image)" />
+          <view class="review-image-card__remove" @click="removeReviewImage(image)">
+            ×
+          </view>
+        </view>
+      </view>
+      <view v-if="reviewLocationLabel" class="review-location-pill">
+        <view class="i-carbon-location-filled text-14px text-orange-500" />
+        <text class="review-location-pill__text">{{ reviewLocationLabel }}</text>
+        <view class="review-location-pill__clear" @click="clearReviewLocation">
+          清除
+        </view>
+      </view>
       <textarea v-model="reviewForm.content" class="review-textarea" placeholder="分享这次到店体验、路线建议或者踩坑提醒" :maxlength="500" />
       <view class="submit-btn" @click="submitReview">
-        发布评价
+        发布现场评价
       </view>
     </view>
 
@@ -1285,40 +1570,23 @@ function onDetailTouchEnd() {
       </view>
     </view>
 
-    <view v-if="showNoteSheet" class="sheet-overlay" :class="{ 'sheet-overlay--show': noteSheetVisible }" @click="closeNotePanel" />
-    <view v-if="showNoteSheet" class="review-sheet" :class="{ 'review-sheet--show': noteSheetVisible }">
+    <view v-if="showReviewReplySheet" class="sheet-overlay" :class="{ 'sheet-overlay--show': reviewReplySheetVisible }" @click="closeReviewReplyPanel" />
+    <view v-if="showReviewReplySheet" class="review-sheet" :class="{ 'review-sheet--show': reviewReplySheetVisible }">
       <view class="sheet-handle" />
       <view class="review-sheet__title">
-        写笔记
+        回复评价
       </view>
-      <input v-model="noteForm.title" class="review-input" placeholder="给这篇笔记起个标题" :maxlength="40">
-      <textarea v-model="noteForm.content" class="review-textarea" placeholder="记录亮点、路线、拍照点位和个人感受" :maxlength="2000" />
-      <view class="submit-btn" @click="submitNote">
-        发布笔记
+      <view v-if="reviewReplyTarget" class="reply-target-card">
+        <view class="reply-target-card__name">
+          回复 {{ reviewReplyTarget.userName }}
+        </view>
+        <view class="reply-target-card__content">
+          {{ reviewReplyTarget.content }}
+        </view>
       </view>
-    </view>
-
-    <view v-if="showQuestionSheet" class="sheet-overlay" :class="{ 'sheet-overlay--show': questionSheetVisible }" @click="closeQuestionPanel" />
-    <view v-if="showQuestionSheet" class="review-sheet" :class="{ 'review-sheet--show': questionSheetVisible }">
-      <view class="sheet-handle" />
-      <view class="review-sheet__title">
-        发起提问
-      </view>
-      <textarea v-model="questionForm.question" class="review-textarea" placeholder="例如：几点去人更少？适合带老人或小孩吗？" :maxlength="500" />
-      <view class="submit-btn" @click="submitQuestion">
-        发布问题
-      </view>
-    </view>
-
-    <view v-if="showAnswerSheet" class="sheet-overlay" :class="{ 'sheet-overlay--show': answerSheetVisible }" @click="closeAnswerPanel" />
-    <view v-if="showAnswerSheet" class="review-sheet" :class="{ 'review-sheet--show': answerSheetVisible }">
-      <view class="sheet-handle" />
-      <view class="review-sheet__title">
-        回复问题
-      </view>
-      <textarea v-model="answerForm.content" class="review-textarea" placeholder="结合你的到店体验，给出更真实的建议" :maxlength="500" />
-      <view class="submit-btn" @click="submitAnswer">
-        发布回复
+      <textarea v-model="reviewReplyForm.content" class="review-textarea" placeholder="补充路线建议、避坑提醒或到店体验" :maxlength="500" />
+      <view class="submit-btn" @click="submitReviewReply">
+        发布评价回复
       </view>
     </view>
   </view>
@@ -1413,8 +1681,8 @@ function onDetailTouchEnd() {
 .hero-content {
   position: absolute;
   left: 0;
-  right: 88px;
-  bottom: 36px;
+  right: 92px;
+  bottom: 34px;
   z-index: 2;
   padding: 0 20px;
 }
@@ -1431,9 +1699,13 @@ function onDetailTouchEnd() {
 }
 
 .hero-title {
-  font-size: 34px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 16px;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1.24;
   color: #fff;
 }
 
@@ -1441,23 +1713,23 @@ function onDetailTouchEnd() {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
+  gap: 6px;
+  margin-top: 10px;
 }
 
 .hero-stars {
-  font-size: 17px;
+  font-size: 15px;
   color: #ff6740;
 }
 
 .hero-rating-value,
 .hero-rating-count {
-  font-size: 16px;
+  font-size: 14px;
   color: rgba(255, 255, 255, 0.96);
 }
 
 .hero-rating-divider {
-  font-size: 14px;
+  font-size: 12px;
   color: rgba(255, 255, 255, 0.56);
 }
 
@@ -1466,7 +1738,7 @@ function onDetailTouchEnd() {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.14);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -1475,18 +1747,18 @@ function onDetailTouchEnd() {
 }
 
 .hero-favorite-pill__text {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .hero-summary-line {
-  margin-top: 14px;
-  font-size: 13px;
+  margin-top: 12px;
+  font-size: 12px;
   color: rgba(255, 255, 255, 0.88);
 }
 
 .hero-category-line {
-  margin-top: 10px;
-  font-size: 15px;
+  margin-top: 8px;
+  font-size: 14px;
   color: rgba(255, 255, 255, 0.95);
 }
 
@@ -1502,10 +1774,10 @@ function onDetailTouchEnd() {
 }
 
 .hero-meta-chip {
-  padding: 7px 12px;
+  padding: 6px 10px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.18);
-  font-size: 12px;
+  font-size: 11px;
   color: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(10px);
 }
@@ -1515,48 +1787,60 @@ function onDetailTouchEnd() {
 }
 
 .hero-address-block {
-  margin-top: 18px;
+  margin-top: 14px;
 }
 
 .hero-address-text {
-  font-size: 18px;
-  line-height: 1.5;
-  font-weight: 600;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 500;
   color: #fff;
 }
 
 .hero-address-arrow {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 400;
   color: rgba(255, 255, 255, 0.84);
 }
 
 .hero-route-text {
-  margin-top: 8px;
-  font-size: 14px;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
   color: rgba(255, 255, 255, 0.8);
 }
 
-.hero-nav-btn {
+.hero-side-actions {
   position: absolute;
   right: 16px;
-  bottom: 46px;
+  bottom: 42px;
   z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.hero-side-btn {
   width: 56px;
-  height: 112px;
+  height: 56px;
   border-radius: 28px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 4px;
   background: rgba(14, 23, 39, 0.32);
   border: 1px solid rgba(255, 255, 255, 0.18);
   backdrop-filter: blur(12px);
 }
 
-.hero-nav-btn__text {
-  font-size: 14px;
+.hero-side-btn__text {
+  font-size: 11px;
   color: #fff;
 }
 
@@ -1568,6 +1852,57 @@ function onDetailTouchEnd() {
   border-radius: 32px 32px 0 0;
   background: #f8f8fa;
   padding: 14px 12px 0;
+}
+
+.quick-review-card {
+  margin-top: 10px;
+  padding: 16px 16px 14px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #fff7f2 0%, #ffffff 100%);
+  border: 1px solid rgba(255, 177, 141, 0.34);
+  box-shadow: 0 10px 24px rgba(239, 90, 50, 0.08);
+}
+
+.quick-review-card__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quick-review-card__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.quick-review-card__subtitle {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #6b7280;
+}
+
+.quick-review-card__action {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #ffede6;
+  color: #ef5a32;
+  font-size: 12px;
+}
+
+.quick-review-stars {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.quick-review-star {
+  font-size: 24px;
+  line-height: 1;
+  color: #ff7a3c;
 }
 
 .brief-card,
@@ -1725,6 +2060,12 @@ function onDetailTouchEnd() {
   margin-bottom: 16px;
 }
 
+.panel-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .panel-title {
   font-size: 20px;
   font-weight: 700;
@@ -1746,9 +2087,26 @@ function onDetailTouchEnd() {
   font-size: 12px;
 }
 
+.panel-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.panel-link__arrow {
+  font-size: 13px;
+  line-height: 1;
+}
+
 .panel-action--ghost {
   background: #fff;
   border: 1px solid #fed7aa;
+}
+
+.question-card {
+  background: linear-gradient(180deg, #fff8f3 0%, #ffffff 100%);
 }
 
 .summary-chip-row {
@@ -1785,6 +2143,11 @@ function onDetailTouchEnd() {
 
 .content-card--white {
   background: #fafafa;
+}
+
+.content-card--highlight {
+  border: 1px solid rgba(239, 90, 50, 0.28);
+  box-shadow: 0 12px 26px rgba(239, 90, 50, 0.12);
 }
 
 .content-card__header {
@@ -1880,6 +2243,81 @@ function onDetailTouchEnd() {
 
 .card-footer {
   margin-top: 12px;
+}
+
+.review-location-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.review-location-row__text {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #9a3412;
+}
+
+.hot-review-tag {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #fff1e8;
+  color: #ef5a32;
+  font-size: 11px;
+}
+
+.review-reply-list {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  background: #f8f9fb;
+}
+
+.review-reply-item {
+  display: flex;
+  gap: 10px;
+}
+
+.review-reply-item + .review-reply-item {
+  margin-top: 10px;
+}
+
+.review-reply-item__avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.review-reply-item__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.review-reply-item__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.review-reply-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.review-reply-item__text {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #4b5563;
+}
+
+.review-reply-more {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #ef5a32;
 }
 
 .note-card {
@@ -2024,6 +2462,25 @@ function onDetailTouchEnd() {
   text-align: center;
 }
 
+.review-sheet__toolbar {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.review-sheet__toolbar-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #fff7f2;
+  color: #ef5a32;
+  font-size: 12px;
+}
+
 .review-star-row {
   display: flex;
   justify-content: center;
@@ -2053,13 +2510,92 @@ function onDetailTouchEnd() {
 .review-textarea {
   width: 100%;
   height: 140px;
-  margin-top: 18px;
+  margin-top: 14px;
   padding: 14px;
   border-radius: 16px;
   background: #f5f5f5;
   box-sizing: border-box;
   font-size: 14px;
   color: #374151;
+}
+
+.review-image-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  margin-top: 14px;
+}
+
+.review-image-card {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  flex-shrink: 0;
+}
+
+.review-image-card__image {
+  width: 100%;
+  height: 100%;
+  border-radius: 14px;
+}
+
+.review-image-card__remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 24, 39, 0.78);
+  color: #fff;
+  font-size: 12px;
+}
+
+.review-location-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #fff7f2;
+}
+
+.review-location-pill__text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #9a3412;
+}
+
+.review-location-pill__clear {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #ef5a32;
+}
+
+.reply-target-card {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: #f8f9fb;
+}
+
+.reply-target-card__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.reply-target-card__content {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #6b7280;
 }
 
 .submit-btn {

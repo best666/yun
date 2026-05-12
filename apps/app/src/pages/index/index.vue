@@ -720,7 +720,7 @@ function relocate() {
             <text class="text-11px text-orange-500">查看详情</text>
           </view>
           <view class="card-action-btn" @click.stop="openMapPlaceLocation">
-            <view class="i-carbon-navigation text-18px text-blue-500" />
+            <view class="i-carbon-location-filled text-18px text-blue-500" />
             <text class="text-11px text-blue-500">路线</text>
           </view>
         </view>

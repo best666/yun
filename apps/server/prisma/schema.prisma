@@ -30,6 +30,8 @@ model User {
   collections Collection[]
   smsCodes    SmsCode[]
   spotReviews SpotReview[]
+  spotReviewReplies SpotReviewReply[]
+  spotReviewLikes SpotReviewLike[]
   spotFavorites SpotFavorite[]
   spotDiscussions SpotDiscussion[]
   spotDiscussionLikes SpotDiscussionLike[]
@@ -197,16 +199,54 @@ model SpotReview {
   content    String   @db.Text
   rating     Int      @default(5)
   images     String?  @db.Text
+  locationName String? @map("location_name") @db.VarChar(100)
+  locationAddress String? @map("location_address") @db.VarChar(300)
   likeCount  Int      @default(0) @map("like_count")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   spot Spot  @relation(fields: [spotId], references: [id], onDelete: Cascade)
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  replies SpotReviewReply[]
+  likes SpotReviewLike[]
 
   @@index([spotId, createdAt])
   @@index([userId])
   @@map("spot_reviews")
+}
+
+/// 地点评价点赞
+model SpotReviewLike {
+  id        Int      @id @default(autoincrement())
+  reviewId  Int      @map("review_id")
+  userId    Int      @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  review SpotReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, userId])
+  @@index([userId])
+  @@map("spot_review_likes")
+}
+
+/// 地点评价回复
+model SpotReviewReply {
+  id        Int      @id @default(autoincrement())
+  reviewId  Int      @map("review_id")
+  userId    Int?     @map("user_id")
+  userName  String   @map("user_name") @db.VarChar(50)
+  avatar    String?  @db.VarChar(500)
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  review SpotReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  user   User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([reviewId, createdAt])
+  @@index([userId])
+  @@map("spot_review_replies")
 }
 
 /// 地点讨论

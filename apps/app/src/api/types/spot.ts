@@ -1,3 +1,19 @@
+export interface ISpotReviewReplyItem {
+  id: string
+  content: string
+  userName: string
+  avatar: string
+  time: string
+  isMine: boolean
+}
+
+export interface IMySpotReviewReplyItem extends ISpotReviewReplyItem {
+  reviewId: string
+  reviewContent: string
+  spotId: number
+  spotName: string
+}
+
 export interface ISpotReviewItem {
   id: string
   userName: string
@@ -5,8 +21,13 @@ export interface ISpotReviewItem {
   rating: number
   content: string
   images: string[]
+  locationName?: string
+  locationAddress?: string
   time: string
   likeCount: number
+  likedByCurrentUser: boolean
+  replyCount: number
+  replies: ISpotReviewReplyItem[]
   isMine: boolean
 }
 
@@ -74,11 +95,6 @@ export interface ISpotQuestionItem {
   answers: ISpotQuestionAnswerItem[]
 }
 
-export interface IMySpotQuestionItem extends ISpotQuestionItem {
-  spotId: number
-  spotName: string
-}
-
 export interface ISpotInteractionNotificationItem {
   id: string
   type: string
@@ -88,6 +104,8 @@ export interface ISpotInteractionNotificationItem {
   isRead: boolean
   spotId?: number
   spotName?: string
+  targetType?: string
+  targetId?: number
   actorName: string
   actorAvatar: string
 }
@@ -139,6 +157,24 @@ export interface ICreateSpotReviewPayload {
   spotId: number
   rating: number
   content: string
+  images?: string[]
+  locationName?: string
+  locationAddress?: string
+}
+
+export interface ICreateSpotReviewReplyPayload {
+  reviewId: number
+  content: string
+}
+
+export interface IToggleSpotReviewLikePayload {
+  reviewId: number
+}
+
+export interface IToggleSpotReviewLikeResult {
+  reviewId: string
+  liked: boolean
+  likeCount: number
 }
 
 export interface ICreateSpotDiscussionPayload {
@@ -149,16 +185,6 @@ export interface ICreateSpotDiscussionPayload {
 export interface ICreateSpotNotePayload {
   spotId: number
   title: string
-  content: string
-}
-
-export interface ICreateSpotQuestionPayload {
-  spotId: number
-  question: string
-}
-
-export interface ICreateSpotQuestionAnswerPayload {
-  questionId: number
   content: string
 }
 

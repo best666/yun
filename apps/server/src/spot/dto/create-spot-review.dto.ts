@@ -1,4 +1,4 @@
-import { IsInt, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsArray, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class CreateSpotReviewDto {
   @IsInt()
@@ -13,4 +13,20 @@ export class CreateSpotReviewDto {
   @MinLength(2)
   @MaxLength(500)
   content: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(500, { each: true })
+  images?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  locationName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  locationAddress?: string;
 }

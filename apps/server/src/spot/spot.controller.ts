@@ -5,13 +5,11 @@ import { CurrentUser, type CurrentAuthUser } from '@/auth/current-user.decorator
 import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
 import { ok } from '@/common/api-response';
 import { CreateSpotDiscussionDto } from './dto/create-spot-discussion.dto';
-import { CreateSpotNoteDto } from './dto/create-spot-note.dto';
-import { CreateSpotQuestionAnswerDto } from './dto/create-spot-question-answer.dto';
-import { CreateSpotQuestionDto } from './dto/create-spot-question.dto';
 import { CreateSpotReviewDto } from './dto/create-spot-review.dto';
+import { CreateSpotReviewReplyDto } from './dto/create-spot-review-reply.dto';
 import { ToggleSpotDiscussionLikeDto } from './dto/toggle-spot-discussion-like.dto';
 import { ToggleSpotFavoriteDto } from './dto/toggle-spot-favorite.dto';
-import { ToggleSpotNoteLikeDto } from './dto/toggle-spot-note-like.dto';
+import { ToggleSpotReviewLikeDto } from './dto/toggle-spot-review-like.dto';
 import { SpotService } from './spot.service';
 
 @Controller('spot')
@@ -76,27 +74,6 @@ export class SpotController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Get('note/my')
-  async getMyNotes(@CurrentUser() currentUser: CurrentAuthUser) {
-    const notes = await this.spotService.getMyNotes(currentUser.userId);
-    return ok(notes);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Get('note/liked/my')
-  async getMyLikedNotes(@CurrentUser() currentUser: CurrentAuthUser) {
-    const notes = await this.spotService.getMyLikedNotes(currentUser.userId);
-    return ok(notes);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Get('question/my')
-  async getMyQuestions(@CurrentUser() currentUser: CurrentAuthUser) {
-    const questions = await this.spotService.getMyQuestions(currentUser.userId);
-    return ok(questions);
-  }
-
-  @UseGuards(JwtAuthGuard)
   @Get('interaction-notification/my')
   async getMyInteractionNotifications(@CurrentUser() currentUser: CurrentAuthUser) {
     const notifications = await this.spotService.getMyInteractionNotifications(currentUser.userId);
@@ -111,6 +88,43 @@ export class SpotController {
   ) {
     const review = await this.spotService.createReview(dto, currentUser.userId);
     return ok(review);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('review/reply')
+  async createReviewReply(
+    @Body() dto: CreateSpotReviewReplyDto,
+    @CurrentUser() currentUser: CurrentAuthUser,
+  ) {
+    const reply = await this.spotService.createReviewReply(dto, currentUser.userId);
+    return ok(reply);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('review/reply/my')
+  async getMyReviewReplies(@CurrentUser() currentUser: CurrentAuthUser) {
+    const replies = await this.spotService.getMyReviewReplies(currentUser.userId);
+    return ok(replies);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('review/like/toggle')
+  async toggleReviewLike(
+    @Body() dto: ToggleSpotReviewLikeDto,
+    @CurrentUser() currentUser: CurrentAuthUser,
+  ) {
+    const result = await this.spotService.toggleReviewLike(dto.reviewId, currentUser.userId);
+    return ok(result);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('review/reply/:replyId')
+  async deleteReviewReply(
+    @Param('replyId') replyId: string,
+    @CurrentUser() currentUser: CurrentAuthUser,
+  ) {
+    const result = await this.spotService.deleteReviewReply(Number(replyId), currentUser.userId);
+    return ok(result);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -141,52 +155,12 @@ export class SpotController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Post('note')
-  async createNote(
-    @Body() dto: CreateSpotNoteDto,
-    @CurrentUser() currentUser: CurrentAuthUser,
-  ) {
-    const note = await this.spotService.createNote(dto, currentUser.userId);
-    return ok(note);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Post('question')
-  async createQuestion(
-    @Body() dto: CreateSpotQuestionDto,
-    @CurrentUser() currentUser: CurrentAuthUser,
-  ) {
-    const question = await this.spotService.createQuestion(dto, currentUser.userId);
-    return ok(question);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Post('question/answer')
-  async createQuestionAnswer(
-    @Body() dto: CreateSpotQuestionAnswerDto,
-    @CurrentUser() currentUser: CurrentAuthUser,
-  ) {
-    const answer = await this.spotService.createQuestionAnswer(dto, currentUser.userId);
-    return ok(answer);
-  }
-
-  @UseGuards(JwtAuthGuard)
   @Post('discussion/like/toggle')
   async toggleDiscussionLike(
     @Body() dto: ToggleSpotDiscussionLikeDto,
     @CurrentUser() currentUser: CurrentAuthUser,
   ) {
     const result = await this.spotService.toggleDiscussionLike(dto.discussionId, currentUser.userId);
-    return ok(result);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Post('note/like/toggle')
-  async toggleNoteLike(
-    @Body() dto: ToggleSpotNoteLikeDto,
-    @CurrentUser() currentUser: CurrentAuthUser,
-  ) {
-    const result = await this.spotService.toggleNoteLike(dto.noteId, currentUser.userId);
     return ok(result);
   }
 
@@ -204,16 +178,6 @@ export class SpotController {
     @CurrentUser() currentUser: CurrentAuthUser,
   ) {
     const result = await this.spotService.deleteDiscussion(Number(discussionId), currentUser.userId);
-    return ok(result);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Delete('note/:noteId')
-  async deleteNote(
-    @Param('noteId') noteId: string,
-    @CurrentUser() currentUser: CurrentAuthUser,
-  ) {
-    const result = await this.spotService.deleteNote(Number(noteId), currentUser.userId);
     return ok(result);
   }
 

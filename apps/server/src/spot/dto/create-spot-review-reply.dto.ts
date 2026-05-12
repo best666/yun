@@ -1,12 +1,12 @@
 import { IsInt, IsString, MaxLength, Min, MinLength } from 'class-validator';
 
-export class CreateSpotQuestionDto {
+export class CreateSpotReviewReplyDto {
   @IsInt()
   @Min(1)
-  spotId: number;
+  reviewId: number;
 
   @IsString()
   @MinLength(2)
   @MaxLength(500)
-  question: string;
+  content: string;
 }

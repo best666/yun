@@ -1,11 +1,25 @@
-import type { Spot, SpotDiscussion, SpotExternalSource, SpotInteractionNotification, SpotNote, SpotQuestion, SpotQuestionAnswer, SpotReview } from '@prisma/client';
+import type { Spot, SpotDiscussion, SpotExternalSource, SpotInteractionNotification, SpotNote, SpotQuestion, SpotQuestionAnswer, SpotReview, SpotReviewReply } from '@prisma/client';
 import { ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
 import { CreateSpotDiscussionDto } from './dto/create-spot-discussion.dto';
-import { CreateSpotNoteDto } from './dto/create-spot-note.dto';
-import { CreateSpotQuestionAnswerDto } from './dto/create-spot-question-answer.dto';
-import { CreateSpotQuestionDto } from './dto/create-spot-question.dto';
 import { CreateSpotReviewDto } from './dto/create-spot-review.dto';
+import { CreateSpotReviewReplyDto } from './dto/create-spot-review-reply.dto';
+
+interface SpotReviewReplyItem {
+  id: string;
+  content: string;
+  userName: string;
+  avatar: string;
+  time: string;
+  isMine: boolean;
+}
+
+interface MySpotReviewReplyItem extends SpotReviewReplyItem {
+  reviewId: string;
+  reviewContent: string;
+  spotId: number;
+  spotName: string;
+}
 
 interface SpotReviewItem {
   id: string;
@@ -14,8 +28,13 @@ interface SpotReviewItem {
   rating: number;
   content: string;
   images: string[];
+  locationName?: string;
+  locationAddress?: string;
   time: string;
   likeCount: number;
+  likedByCurrentUser: boolean;
+  replyCount: number;
+  replies: SpotReviewReplyItem[];
   isMine: boolean;
 }
 
@@ -53,17 +72,6 @@ interface SpotNoteItem {
   isMine: boolean;
 }
 
-interface MySpotNoteItem extends SpotNoteItem {
-  spotId: number;
-  spotName: string;
-}
-
-interface MyLikedSpotNoteItem extends SpotNoteItem {
-  spotId: number;
-  spotName: string;
-  likedAt: string;
-}
-
 interface SpotQuestionAnswerItem {
   id: string;
   content: string;
@@ -83,11 +91,6 @@ interface SpotQuestionItem {
   answers: SpotQuestionAnswerItem[];
 }
 
-interface MySpotQuestionItem extends SpotQuestionItem {
-  spotId: number;
-  spotName: string;
-}
-
 interface SpotInteractionNotificationItem {
   id: string;
   type: string;
@@ -97,8 +100,16 @@ interface SpotInteractionNotificationItem {
   isRead: boolean;
   spotId?: number;
   spotName?: string;
+  targetType?: string;
+  targetId?: number;
   actorName: string;
   actorAvatar: string;
+}
+
+interface ToggleSpotReviewLikeResult {
+  reviewId: string;
+  liked: boolean;
+  likeCount: number;
 }
 
 interface SpotInteractionNotificationListItem {
@@ -173,7 +184,7 @@ interface SeedSpot {
   routeTip: string;
   navigationLabel: string;
   tags: string[];
-  reviews: Array<Omit<SpotReviewItem, 'isMine'>>;
+  reviews: Array<Omit<SpotReviewItem, 'isMine' | 'likedByCurrentUser' | 'replyCount' | 'replies'> & { replyCount?: number; replies?: SpotReviewReplyItem[] }>;
   discussions: Array<Omit<SpotDiscussionItem, 'isMine'>>;
   notes: Array<Omit<SpotNoteItem, 'isMine' | 'likedByCurrentUser'>>;
   questions: Array<Omit<SpotQuestionItem, 'isMine'>>;
@@ -534,6 +545,14 @@ export class SpotService implements OnModuleInit {
       orderBy: { createdAt: 'desc' },
       include: {
         spot: true,
+        likes: {
+          select: {
+            userId: true,
+          },
+        },
+        replies: {
+          orderBy: { createdAt: 'asc' },
+        },
       },
     });
 
@@ -544,28 +563,12 @@ export class SpotService implements OnModuleInit {
     } satisfies MySpotReviewItem));
   }
 
-  async getMyNotes(userId: number) {
-    const notes = await this.prisma.spotNote.findMany({
+  async getMyReviewReplies(userId: number) {
+    const replies = await this.prisma.spotReviewReply.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
       include: {
-        spot: true,
-      },
-    });
-
-    return notes.map(note => ({
-      ...this.toNoteItem(note, userId),
-      spotId: note.spotId,
-      spotName: note.spot?.name || '未知地点',
-    } satisfies MySpotNoteItem));
-  }
-
-  async getMyLikedNotes(userId: number) {
-    const likedNotes = await this.prisma.spotNoteLike.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        note: {
+        review: {
           include: {
             spot: true,
           },
@@ -573,31 +576,13 @@ export class SpotService implements OnModuleInit {
       },
     });
 
-    return likedNotes.map(item => ({
-      ...this.toNoteItem(item.note, userId, true),
-      spotId: item.note.spotId,
-      spotName: item.note.spot?.name || '未知地点',
-      likedAt: item.createdAt.toISOString().slice(0, 10),
-    } satisfies MyLikedSpotNoteItem));
-  }
-
-  async getMyQuestions(userId: number) {
-    const questions = await this.prisma.spotQuestion.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        spot: true,
-        answers: {
-          orderBy: { createdAt: 'asc' },
-        },
-      },
-    });
-
-    return questions.map(question => ({
-      ...this.toQuestionItem(question, userId),
-      spotId: question.spotId,
-      spotName: question.spot?.name || '未知地点',
-    } satisfies MySpotQuestionItem));
+    return replies.map(reply => ({
+      ...this.toReviewReplyItem(reply, userId),
+      reviewId: String(reply.reviewId),
+      reviewContent: reply.review?.content || '评价内容已不可见',
+      spotId: reply.review?.spotId || 0,
+      spotName: reply.review?.spot?.name || '未知地点',
+    } satisfies MySpotReviewReplyItem));
   }
 
   async getMyInteractionNotifications(userId: number): Promise<SpotInteractionNotificationListItem> {
@@ -661,6 +646,26 @@ export class SpotService implements OnModuleInit {
     return { id: String(reviewId) };
   }
 
+  async deleteReviewReply(replyId: number, userId: number) {
+    const reply = await this.prisma.spotReviewReply.findUnique({
+      where: { id: replyId },
+    });
+
+    if (!reply) {
+      throw new NotFoundException('评价回复不存在');
+    }
+
+    if (reply.userId !== userId) {
+      throw new ForbiddenException('无权删除该评价回复');
+    }
+
+    await this.prisma.spotReviewReply.delete({
+      where: { id: replyId },
+    });
+
+    return { id: String(replyId) };
+  }
+
   async toggleFavorite(spotId: number, userId: number) {
     const spot = await this.prisma.spot.findUnique({
       where: { id: spotId },
@@ -713,65 +718,6 @@ export class SpotService implements OnModuleInit {
     };
   }
 
-  async toggleNoteLike(noteId: number, userId: number) {
-    const note = await this.prisma.spotNote.findUnique({
-      where: { id: noteId },
-    });
-
-    if (!note) {
-      throw new NotFoundException('笔记不存在');
-    }
-
-    const existingLike = await this.prisma.spotNoteLike.findUnique({
-      where: {
-        noteId_userId: {
-          noteId,
-          userId,
-        },
-      },
-    });
-
-    const liked = !existingLike;
-
-    if (existingLike) {
-      await this.prisma.spotNoteLike.delete({
-        where: {
-          noteId_userId: {
-            noteId,
-            userId,
-          },
-        },
-      });
-    }
-    else {
-      await this.prisma.spotNoteLike.create({
-        data: {
-          noteId,
-          userId,
-        },
-      });
-
-      await this.createInteractionNotification({
-        recipientUserId: note.userId,
-        actorUserId: userId,
-        spotId: note.spotId,
-        type: 'note_like',
-        title: '你的笔记收到了点赞',
-        content: `点赞了你的笔记《${note.title}》`,
-        targetType: 'note',
-        targetId: note.id,
-      });
-    }
-
-    const likeCount = await this.refreshNoteLikeCount(noteId);
-
-    return {
-      noteId: String(noteId),
-      liked,
-      likeCount,
-    };
-  }
-
   async createReview(dto: CreateSpotReviewDto, userId: number) {
     const user = await this.findUserOrThrow(userId);
     const spot = await this.findSpotOrThrow(dto.spotId);
@@ -784,7 +730,9 @@ export class SpotService implements OnModuleInit {
         avatar: user.avatar || '/static/images/default-avatar.png',
         content: dto.content.trim(),
         rating: dto.rating,
-        images: JSON.stringify([]),
+        images: JSON.stringify((dto.images || []).filter(Boolean)),
+        locationName: dto.locationName?.trim() || null,
+        locationAddress: dto.locationAddress?.trim() || null,
       },
     });
 
@@ -804,84 +752,19 @@ export class SpotService implements OnModuleInit {
     return this.toReviewItem(review);
   }
 
-  async createNote(dto: CreateSpotNoteDto, userId: number) {
+  async createReviewReply(dto: CreateSpotReviewReplyDto, userId: number) {
     const user = await this.findUserOrThrow(userId);
-    const spot = await this.findSpotOrThrow(dto.spotId);
-
-    const note = await this.prisma.spotNote.create({
-      data: {
-        spotId: dto.spotId,
-        userId,
-        userName: user.nickname || user.username || user.phone || `用户${user.id}`,
-        avatar: user.avatar || '/static/images/default-avatar.png',
-        title: dto.title.trim(),
-        content: dto.content.trim(),
-        cover: spot.cover || 'https://placehold.co/400x300/ff6633/white?text=Spot+Note',
-      },
+    const review = await this.prisma.spotReview.findUnique({
+      where: { id: dto.reviewId },
     });
 
-    await this.notifyFavoriteFollowersOnSpotUpdate({
-      actorUserId: userId,
-      actorName: user.nickname || user.username || user.phone || `用户${user.id}`,
-      spotId: spot.id,
-      spotName: spot.name,
-      type: 'favorite_spot_new_note',
-      title: '你收藏的地点有新笔记',
-      content: `在${spot.name}发布了新笔记《${this.truncateText(note.title, 18)}》`,
-      targetType: 'note',
-      targetId: note.id,
-    });
-
-    return this.toNoteItem(note, userId);
-  }
-
-  async createQuestion(dto: CreateSpotQuestionDto, userId: number) {
-    const user = await this.findUserOrThrow(userId);
-    const spot = await this.findSpotOrThrow(dto.spotId);
-
-    const question = await this.prisma.spotQuestion.create({
-      data: {
-        spotId: dto.spotId,
-        userId,
-        userName: user.nickname || user.username || user.phone || `用户${user.id}`,
-        avatar: user.avatar || '/static/images/default-avatar.png',
-        question: dto.question.trim(),
-      },
-      include: {
-        answers: {
-          orderBy: { createdAt: 'asc' },
-        },
-      },
-    });
-
-    await this.notifyFavoriteFollowersOnSpotUpdate({
-      actorUserId: userId,
-      actorName: user.nickname || user.username || user.phone || `用户${user.id}`,
-      spotId: spot.id,
-      spotName: spot.name,
-      type: 'favorite_spot_new_question',
-      title: '你收藏的地点有新问答',
-      content: `在${spot.name}发起了新问题：${this.truncateText(question.question, 24)}`,
-      targetType: 'question',
-      targetId: question.id,
-    });
-
-    return this.toQuestionItem(question, userId);
-  }
-
-  async createQuestionAnswer(dto: CreateSpotQuestionAnswerDto, userId: number) {
-    const user = await this.findUserOrThrow(userId);
-    const question = await this.prisma.spotQuestion.findUnique({
-      where: { id: dto.questionId },
-    });
-
-    if (!question) {
-      throw new NotFoundException('问题不存在');
+    if (!review) {
+      throw new NotFoundException('评价不存在');
     }
 
-    const answer = await this.prisma.spotQuestionAnswer.create({
+    const reply = await this.prisma.spotReviewReply.create({
       data: {
-        questionId: dto.questionId,
+        reviewId: dto.reviewId,
         userId,
         userName: user.nickname || user.username || user.phone || `用户${user.id}`,
         avatar: user.avatar || '/static/images/default-avatar.png',
@@ -890,17 +773,76 @@ export class SpotService implements OnModuleInit {
     });
 
     await this.createInteractionNotification({
-      recipientUserId: question.userId,
+      recipientUserId: review.userId,
       actorUserId: userId,
-      spotId: question.spotId,
-      type: 'question_answer',
-      title: '你的问题收到了新回复',
-      content: `回复了你的问题：${this.truncateText(question.question, 26)}`,
-      targetType: 'question',
-      targetId: question.id,
+      spotId: review.spotId,
+      type: 'review_reply',
+      title: '你的评价收到了新回复',
+      content: `回复了你的评价：${this.truncateText(review.content, 26)}`,
+      targetType: 'review',
+      targetId: review.id,
     });
 
-    return this.toQuestionAnswerItem(answer, userId);
+    return this.toReviewReplyItem(reply, userId);
+  }
+
+  async toggleReviewLike(reviewId: number, userId: number): Promise<ToggleSpotReviewLikeResult> {
+    const review = await this.prisma.spotReview.findUnique({
+      where: { id: reviewId },
+    });
+
+    if (!review) {
+      throw new NotFoundException('评价不存在');
+    }
+
+    const existingLike = await this.prisma.spotReviewLike.findUnique({
+      where: {
+        reviewId_userId: {
+          reviewId,
+          userId,
+        },
+      },
+    });
+
+    const liked = !existingLike;
+
+    if (existingLike) {
+      await this.prisma.spotReviewLike.delete({
+        where: {
+          reviewId_userId: {
+            reviewId,
+            userId,
+          },
+        },
+      });
+    }
+    else {
+      await this.prisma.spotReviewLike.create({
+        data: {
+          reviewId,
+          userId,
+        },
+      });
+
+      await this.createInteractionNotification({
+        recipientUserId: review.userId,
+        actorUserId: userId,
+        spotId: review.spotId,
+        type: 'review_like',
+        title: '你的评价收到了点赞',
+        content: `点赞了你的评价：${this.truncateText(review.content, 26)}`,
+        targetType: 'review',
+        targetId: review.id,
+      });
+    }
+
+    const likeCount = await this.refreshReviewLikeCount(reviewId);
+
+    return {
+      reviewId: String(reviewId),
+      liked,
+      likeCount,
+    };
   }
 
   async createDiscussion(dto: CreateSpotDiscussionDto, userId: number) {
@@ -981,26 +923,6 @@ export class SpotService implements OnModuleInit {
     });
 
     return { id: String(discussionId) };
-  }
-
-  async deleteNote(noteId: number, userId: number) {
-    const note = await this.prisma.spotNote.findUnique({
-      where: { id: noteId },
-    });
-
-    if (!note) {
-      throw new NotFoundException('笔记不存在');
-    }
-
-    if (note.userId !== userId) {
-      throw new ForbiddenException('无权删除该笔记');
-    }
-
-    await this.prisma.spotNote.delete({
-      where: { id: noteId },
-    });
-
-    return { id: String(noteId) };
   }
 
   async toggleDiscussionLike(discussionId: number, userId: number) {
@@ -1097,6 +1019,16 @@ export class SpotService implements OnModuleInit {
               images: JSON.stringify(review.images),
               likeCount: review.likeCount,
               createdAt: new Date(review.time),
+              replies: review.replies?.length
+                ? {
+                    create: review.replies.map(reply => ({
+                      userName: reply.userName,
+                      avatar: reply.avatar,
+                      content: reply.content,
+                      createdAt: new Date(reply.time),
+                    })),
+                  }
+                : undefined,
             })),
           },
           discussions: {
@@ -1224,6 +1156,15 @@ export class SpotService implements OnModuleInit {
               rating: 5,
               images: JSON.stringify([]),
               likeCount: 19,
+              replies: {
+                create: [
+                  {
+                    userName: '路线分享者',
+                    avatar: 'https://placehold.co/80/6366f1/white?text=R',
+                    content: '我晚饭点过去过一次，门口挺好找，进店速度也还可以。',
+                  },
+                ],
+              },
             },
             {
               userName: '路过打卡',
@@ -1332,6 +1273,21 @@ export class SpotService implements OnModuleInit {
     return likeCount;
   }
 
+  private async refreshReviewLikeCount(reviewId: number) {
+    const likeCount = await this.prisma.spotReviewLike.count({
+      where: { reviewId },
+    });
+
+    await this.prisma.spotReview.update({
+      where: { id: reviewId },
+      data: {
+        likeCount,
+      },
+    });
+
+    return likeCount;
+  }
+
   private async refreshNoteLikeCount(noteId: number) {
     const likeCount = await this.prisma.spotNoteLike.count({
       where: { noteId },
@@ -1351,6 +1307,16 @@ export class SpotService implements OnModuleInit {
     return {
       reviews: {
         orderBy: { createdAt: 'desc' as const },
+        include: {
+          likes: {
+            select: {
+              userId: true,
+            },
+          },
+          replies: {
+            orderBy: { createdAt: 'asc' as const },
+          },
+        },
       },
       discussions: {
         orderBy: { createdAt: 'desc' as const },
@@ -1371,7 +1337,7 @@ export class SpotService implements OnModuleInit {
   }
 
   private async toSpotDetailItem(
-    spot: Spot & { reviews: SpotReview[]; discussions: SpotDiscussion[]; notes: SpotNote[]; questions: (SpotQuestion & { answers: SpotQuestionAnswer[] })[]; externalSources: SpotExternalSource[] },
+    spot: Spot & { reviews: (SpotReview & { replies: SpotReviewReply[]; likes: Array<{ userId: number }> })[]; discussions: SpotDiscussion[]; notes: SpotNote[]; questions: (SpotQuestion & { answers: SpotQuestionAnswer[] })[]; externalSources: SpotExternalSource[] },
     currentUserId?: number,
   ): Promise<SpotDetailItem> {
     const discussionIds = spot.discussions.map(discussion => discussion.id);
@@ -1440,7 +1406,10 @@ export class SpotService implements OnModuleInit {
     };
   }
 
-  private toReviewItem(review: SpotReview, currentUserId?: number): SpotReviewItem {
+  private toReviewItem(review: SpotReview & { replies?: SpotReviewReply[]; likes?: Array<{ userId: number }> }, currentUserId?: number): SpotReviewItem {
+    const reviewReplies = review.replies || [];
+    const likedByCurrentUser = !!currentUserId && (review.likes || []).some(item => item.userId === currentUserId);
+
     return {
       id: String(review.id),
       userName: review.userName,
@@ -1448,9 +1417,25 @@ export class SpotService implements OnModuleInit {
       rating: review.rating,
       content: review.content,
       images: this.parseStringArray(review.images),
+      locationName: review.locationName || undefined,
+      locationAddress: review.locationAddress || undefined,
       time: review.createdAt.toISOString().slice(0, 10),
       likeCount: review.likeCount,
+      likedByCurrentUser,
+      replyCount: reviewReplies.length,
+      replies: reviewReplies.map(reply => this.toReviewReplyItem(reply, currentUserId)),
       isMine: !!currentUserId && review.userId === currentUserId,
+    };
+  }
+
+  private toReviewReplyItem(reply: SpotReviewReply, currentUserId?: number): SpotReviewReplyItem {
+    return {
+      id: String(reply.id),
+      content: reply.content,
+      userName: reply.userName,
+      avatar: reply.avatar || '/static/images/default-avatar.png',
+      time: reply.createdAt.toISOString().slice(0, 10),
+      isMine: !!currentUserId && reply.userId === currentUserId,
     };
   }
 
@@ -1518,6 +1503,8 @@ export class SpotService implements OnModuleInit {
       isRead: notification.isRead,
       spotId: notification.spotId || undefined,
       spotName: notification.spot?.name || undefined,
+      targetType: notification.targetType || undefined,
+      targetId: notification.targetId || undefined,
       actorName: notification.actorUser?.nickname || notification.actorUser?.username || notification.actorUser?.phone || '互动用户',
       actorAvatar: notification.actorUser?.avatar || '/static/images/default-avatar.png',
     };
