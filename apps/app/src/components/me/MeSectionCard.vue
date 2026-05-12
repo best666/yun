@@ -5,17 +5,7 @@ defineSlots<{
 </script>
 
 <template>
-  <view class="me-section-card">
+  <view class="mx-12px mb-12px rounded-12px bg-white px-16px py-8px shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
     <slot />
   </view>
 </template>
-
-<style lang="scss" scoped>
-.me-section-card {
-  margin: 0 12px 12px;
-  border-radius: 12px;
-  background: #fff;
-  padding: 8px 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-}
-</style>

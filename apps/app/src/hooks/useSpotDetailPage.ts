@@ -5,6 +5,7 @@ import { useFavoriteStore, useFootprintStore, useMapSettingStore, useTokenStore,
 import { getEnvBaseUrl } from '@/utils'
 import { openNavigationWithPreference } from '@/utils/mapNavigation'
 import { fetchAndCacheSpotDetail, getCachedSpotDetail } from '@/utils/spotDetailCache'
+import { normalizeSpotReview, normalizeSpotReviewReply } from '@/utils/spotDetailNormalize'
 import { toLoginPage } from '@/utils/toLoginPage'
 
 type DetailTabKey = 'heat' | 'reviews'
@@ -650,23 +651,24 @@ export function useSpotDetailPage() {
         locationName: reviewForm.locationName || undefined,
         locationAddress: reviewForm.locationAddress || undefined,
       })
+      const normalizedReview = normalizeSpotReview(createdReview)
 
       userContentStore.addReview({
-        id: createdReview.id,
+        id: normalizedReview.id,
         spotId: Number(spotIdentity.value),
         spotName: spotDetail.value.name,
-        userName: createdReview.userName || userStore.userInfo.nickname || '美食探索者',
-        avatar: createdReview.avatar || userStore.userInfo.avatar,
-        rating: createdReview.rating,
-        content: createdReview.content,
-        images: createdReview.images,
-        locationName: createdReview.locationName,
-        locationAddress: createdReview.locationAddress,
-        time: createdReview.time,
-        likeCount: createdReview.likeCount,
-        likedByCurrentUser: createdReview.likedByCurrentUser,
-        replyCount: createdReview.replyCount,
-        replies: createdReview.replies,
+        userName: normalizedReview.userName || userStore.userInfo.nickname || '美食探索者',
+        avatar: normalizedReview.avatar || userStore.userInfo.avatar,
+        rating: normalizedReview.rating,
+        content: normalizedReview.content,
+        images: normalizedReview.images,
+        locationName: normalizedReview.locationName,
+        locationAddress: normalizedReview.locationAddress,
+        time: normalizedReview.time,
+        likeCount: normalizedReview.likeCount,
+        likedByCurrentUser: normalizedReview.likedByCurrentUser,
+        replyCount: normalizedReview.replyCount,
+        replies: normalizedReview.replies,
         isMine: true,
       })
 
@@ -723,8 +725,9 @@ export function useSpotDetailPage() {
         reviewId: Number(reviewReplyTargetId.value),
         content: reviewReplyForm.content.trim(),
       })
+      const normalizedReply = normalizeSpotReviewReply(createdReply)
 
-      review.replies = [...review.replies, createdReply]
+      review.replies = [...review.replies, normalizedReply]
       review.replyCount = review.replies.length
       closeReviewReplyPanel()
       uni.showToast({ title: '回复已发布', icon: 'success' })

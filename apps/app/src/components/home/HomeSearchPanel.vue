@@ -22,12 +22,12 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <view v-if="props.visible" class="search-panel">
-    <view class="search-panel-header">
-      <view class="search-panel-input-wrap">
+  <view v-if="props.visible" class="fixed inset-0 z-500 bg-white">
+    <view class="flex items-center gap-12px border-b border-#f0f0f0 px-16px pb-10px pt-[calc(env(safe-area-inset-top)+10px)]">
+      <view class="flex flex-1 items-center rounded-20px bg-#f5f5f5 px-14px py-8px">
         <view class="i-carbon-search text-16px text-gray-400" />
         <input
-          class="search-panel-input"
+          class="ml-8px flex-1 text-14px text-#333"
           :value="props.keyword"
           placeholder="搜索地点、地址、用户昵称或手机号"
           focus
@@ -39,23 +39,23 @@ const emit = defineEmits<{
       <text class="text-14px text-orange-500" @click="emit('close')">取消</text>
     </view>
 
-    <scroll-view scroll-y class="search-results">
-      <view v-if="props.keyword" class="search-section">
-        <view class="search-section-title">
+    <scroll-view scroll-y class="h-[calc(100vh-120px)]">
+      <view v-if="props.keyword" class="home-search-section">
+        <view class="home-search-section-title">
           地点
-          <text class="search-section-count">{{ props.searchSpotResults.length }}</text>
+          <text class="home-search-section-count">{{ props.searchSpotResults.length }}</text>
         </view>
-        <view v-if="props.isSearchingPlaces" class="search-empty-tip">
+        <view v-if="props.isSearchingPlaces" class="home-search-empty-tip">
           正在搜索地点...
         </view>
         <view
           v-for="item in props.searchSpotResults"
           v-else
           :key="`spot-${item.id}`"
-          class="search-result-item"
+          class="home-search-result-item"
           @click="emit('selectSpot', item)"
         >
-          <view class="search-place-avatar">
+          <view class="h-50px w-50px center flex-shrink-0 rounded-full bg-[linear-gradient(135deg,#fff1e8_0%,#ffe4d4_100%)]">
             <view class="i-carbon-location-filled text-18px text-orange-500" />
           </view>
           <view class="ml-3 min-w-0 flex-1">
@@ -71,24 +71,24 @@ const emit = defineEmits<{
             </view>
           </view>
         </view>
-        <view v-if="!props.isSearchingPlaces && props.searchSpotResults.length === 0" class="search-empty-tip">
+        <view v-if="!props.isSearchingPlaces && props.searchSpotResults.length === 0" class="home-search-empty-tip">
           未找到相关地点
         </view>
       </view>
 
-      <view v-if="props.keyword" class="search-section">
-        <view class="search-section-title">
+      <view v-if="props.keyword" class="home-search-section">
+        <view class="home-search-section-title">
           用户
-          <text class="search-section-count">{{ props.searchUserResults.length }}</text>
+          <text class="home-search-section-count">{{ props.searchUserResults.length }}</text>
         </view>
-        <view v-if="props.isSearchingUsers" class="search-empty-tip">
+        <view v-if="props.isSearchingUsers" class="home-search-empty-tip">
           正在搜索用户...
         </view>
         <view
           v-for="user in props.searchUserResults"
           v-else
           :key="`user-${user.userId}`"
-          class="search-result-item"
+          class="home-search-result-item"
           @click="emit('selectUser', user)"
         >
           <image :src="user.avatar || '/static/images/default-avatar.png'" class="h-50px w-50px flex-shrink-0 rounded-full" mode="aspectFill" />
@@ -97,7 +97,7 @@ const emit = defineEmits<{
               <view class="truncate text-14px text-gray-800 font-medium">
                 {{ user.nickname }}
               </view>
-              <view class="search-user-badge">
+              <view class="rounded-full bg-#fff1e8 px-8px py-2px text-11px text-#ff7b4a">
                 用户
               </view>
             </view>
@@ -109,7 +109,7 @@ const emit = defineEmits<{
             </view>
           </view>
         </view>
-        <view v-if="!props.isSearchingUsers && props.searchUserResults.length === 0" class="search-empty-tip">
+        <view v-if="!props.isSearchingUsers && props.searchUserResults.length === 0" class="home-search-empty-tip">
           未找到相关用户
         </view>
       </view>
@@ -126,98 +126,3 @@ const emit = defineEmits<{
     </scroll-view>
   </view>
 </template>
-
-<style lang="scss" scoped>
-.search-panel {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: #fff;
-  z-index: 500;
-}
-
-.search-panel-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.search-panel-input-wrap {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  padding: 8px 14px;
-  background: #f5f5f5;
-  border-radius: 20px;
-}
-
-.search-panel-input {
-  flex: 1;
-  margin-left: 8px;
-  font-size: 14px;
-  color: #333;
-}
-
-.search-results {
-  height: calc(100vh - 120px);
-}
-
-.search-section {
-  padding: 8px 0 4px;
-}
-
-.search-section-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #8a5a3b;
-}
-
-.search-section-count {
-  font-size: 12px;
-  color: #b0b0b0;
-}
-
-.search-result-item {
-  display: flex;
-  align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid #f8f8f8;
-
-  &:active {
-    background: #f8f8f8;
-  }
-}
-
-.search-place-avatar {
-  width: 50px;
-  height: 50px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #fff1e8 0%, #ffe4d4 100%);
-}
-
-.search-empty-tip {
-  padding: 8px 16px 14px;
-  font-size: 12px;
-  color: #b0b0b0;
-}
-
-.search-user-badge {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: #fff1e8;
-  font-size: 11px;
-  color: #ff7b4a;
-}
-</style>

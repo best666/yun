@@ -1,7 +1,9 @@
 <script lang="ts" setup>
 import type { FavoriteSpotSummary, ISpotInteractionNotificationItem } from '@/api/types/spot'
 import MeDiscussionItem from '@/components/me/MeDiscussionItem.vue'
+import MeMenuPanel from '@/components/me/MeMenuPanel.vue'
 import MeProfileDialog from '@/components/me/MeProfileDialog.vue'
+import MeProfileHeader from '@/components/me/MeProfileHeader.vue'
 import MeReviewItem from '@/components/me/MeReviewItem.vue'
 import MeReviewReplyItem from '@/components/me/MeReviewReplyItem.vue'
 import MeSectionCard from '@/components/me/MeSectionCard.vue'
@@ -14,13 +16,6 @@ import { toLoginPage } from '@/utils/toLoginPage'
 
 interface FootprintSpotSummary extends FavoriteSpotSummary {
   viewedAt: string
-}
-
-interface MenuItem {
-  icon: string
-  label: string
-  action: MenuAction
-  count?: () => number
 }
 
 interface NotificationGroupItem {
@@ -109,15 +104,15 @@ const stats = computed(() => [
   { label: '足迹', value: footprintStore.footprintCount },
 ])
 
-const menuList: MenuItem[] = [
-  { icon: 'i-carbon-favorite', label: '我的收藏', action: 'favorites', count: () => favoriteStore.favoriteCount },
-  { icon: 'i-carbon-star', label: '我的评价', action: 'reviews', count: () => userContentStore.reviewCount },
-  { icon: 'i-carbon-chat', label: '我的回复', action: 'review-replies', count: () => userContentStore.reviewReplyCount },
-  { icon: 'i-carbon-chat', label: '我的讨论', action: 'discussions', count: () => userContentStore.discussionCount },
-  { icon: 'i-carbon-notification', label: '互动提醒', action: 'notifications', count: () => userContentStore.unreadNotificationCount },
-  { icon: 'i-carbon-location', label: '浏览足迹', action: 'footprint', count: () => footprintStore.footprintCount },
-  { icon: 'i-carbon-settings', label: '设置', action: 'settings' },
-]
+const menuItems = computed(() => [
+  { icon: 'i-carbon-favorite', label: '我的收藏', action: 'favorites' as const, count: favoriteStore.favoriteCount, expanded: isExpandedSection('favorites') },
+  { icon: 'i-carbon-star', label: '我的评价', action: 'reviews' as const, count: userContentStore.reviewCount, expanded: isExpandedSection('reviews') },
+  { icon: 'i-carbon-chat', label: '我的回复', action: 'review-replies' as const, count: userContentStore.reviewReplyCount, expanded: isExpandedSection('review-replies') },
+  { icon: 'i-carbon-chat', label: '我的讨论', action: 'discussions' as const, count: userContentStore.discussionCount, expanded: isExpandedSection('discussions') },
+  { icon: 'i-carbon-notification', label: '互动提醒', action: 'notifications' as const, count: userContentStore.unreadNotificationCount, expanded: isExpandedSection('notifications') },
+  { icon: 'i-carbon-location', label: '浏览足迹', action: 'footprint' as const, count: footprintStore.footprintCount, expanded: isExpandedSection('footprint') },
+  { icon: 'i-carbon-settings', label: '设置', action: 'settings' as const, expanded: false },
+])
 
 const groupedNotifications = computed<NotificationGroupItem[]>(() => {
   const groupedMap = new Map<string, NotificationGroupItem>()
@@ -297,13 +292,13 @@ function formatDateTime(value: string) {
   return `${year}-${month}-${day} ${hours}:${minutes}`
 }
 
-function onMenuTap(item: MenuItem) {
-  if (isExpandableAction(item.action)) {
-    toggleExpandedSection(item.action)
+function onMenuTap(action: MenuAction) {
+  if (isExpandableAction(action)) {
+    toggleExpandedSection(action)
     return
   }
 
-  if (item.action === 'settings') {
+  if (action === 'settings') {
     showSettings.value = true
   }
 }
@@ -448,56 +443,15 @@ function setNavigationMapApp(mapApp: NavigationMapApp) {
 
 <template>
   <view class="min-h-screen bg-#f5f5f5 pb-[calc(60px+env(safe-area-inset-bottom))]">
-    <view class="relative">
-      <view class="h-200px bg-[linear-gradient(135deg,#ff6633_0%,#ff8c42_100%)] pt-safe" />
-      <view class="relative z-10 mt--120px flex items-center gap-14px px-20px">
-        <image :src="displayUserInfo.avatar" class="me-avatar h-68px w-68px" mode="aspectFill" />
-        <view class="flex-1" @click="handleLoginOrProfile">
-          <view class="flex items-center gap-2">
-            <view class="text-18px text-white font-bold">
-              {{ displayUserInfo.nickname }}
-            </view>
-            <view class="i-carbon-edit text-14px text-white text-opacity-70" />
-          </view>
-          <view class="mt-1 text-13px text-white text-opacity-80">
-            {{ displayUserInfo.desc }}
-          </view>
-        </view>
-        <view v-if="!hasLogin" class="me-login-pill" @click="toLoginPage()">
-          去登录
-        </view>
-      </view>
+    <MeProfileHeader
+      :user-info="displayUserInfo"
+      :has-login="hasLogin"
+      :stats="stats"
+      @edit-profile="handleLoginOrProfile"
+      @login="toLoginPage()"
+    />
 
-      <view class="relative z-10 mx-12px mt-16px flex rounded-12px bg-white py-16px shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
-        <view v-for="stat in stats" :key="stat.label" class="flex-1 text-center">
-          <view class="text-20px text-gray-800 font-bold">
-            {{ stat.value }}
-          </view>
-          <view class="mt-1 text-12px text-gray-500">
-            {{ stat.label }}
-          </view>
-        </view>
-      </view>
-    </view>
-
-    <view class="mx-12px mt-12px rounded-12px bg-white px-16px shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
-      <view
-        v-for="(item, index) in menuList"
-        :key="item.label"
-        class="flex items-center justify-between border-b border-#f5f5f5 py-16px active:opacity-70"
-        :class="{ 'border-b-0': index === menuList.length - 1 }"
-        @click="onMenuTap(item)"
-      >
-        <view class="flex items-center gap-3">
-          <view :class="item.icon" class="text-20px text-orange-500" />
-          <text class="text-15px text-gray-700">{{ item.label }}</text>
-          <text v-if="item.count && item.count() > 0" class="text-12px text-gray-400">
-            ({{ item.count() }})
-          </text>
-        </view>
-        <view class="text-16px text-gray-300" :class="isExpandableAction(item.action) && isExpandedSection(item.action) ? 'i-carbon-chevron-down' : 'i-carbon-chevron-right'" />
-      </view>
-    </view>
+    <MeMenuPanel :items="menuItems" @select="onMenuTap" />
 
     <MeSectionCard v-if="isExpandedSection('favorites')">
       <view v-if="favoriteSpots.length === 0" class="py-8 text-center text-13px text-gray-400">
@@ -631,20 +585,3 @@ function setNavigationMapApp(mapApp: NavigationMapApp) {
     />
   </view>
 </template>
-
-<style lang="scss" scoped>
-.me-avatar {
-  border: 3px solid #fff;
-  border-radius: 999px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.me-login-pill {
-  padding: 8px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.18);
-  font-size: 13px;
-  color: #fff;
-}
-</style>

@@ -22,6 +22,7 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
+  cardInteract: []
   openDetail: []
   toggleFavorite: []
   openLocation: []
@@ -33,7 +34,12 @@ const CARD_SWIPE_THRESHOLD = 36
 const cardTouchStartY = ref(0)
 const cardTouchEndY = ref(0)
 
+function notifyCardInteract() {
+  emit('cardInteract')
+}
+
 function onTouchStart(event: any) {
+  notifyCardInteract()
   cardTouchStartY.value = event.touches?.[0]?.clientY ?? 0
   cardTouchEndY.value = cardTouchStartY.value
 }
@@ -57,18 +63,24 @@ function onTouchEnd() {
 </script>
 
 <template>
-  <view class="bottom-card" :class="{ 'bottom-card--show': props.visible }">
+  <view
+    class="will-change-[transform,opacity] [contain:layout_style_paint] fixed bottom-0 left-0 right-0 z-200 transition-[transform,opacity] duration-240 ease-[cubic-bezier(0.22,1,0.36,1)]"
+    :class="props.visible ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-[calc(100%+18px)] opacity-0'"
+    @touchstart.stop="notifyCardInteract"
+  >
     <view
       v-if="props.place"
-      class="card-content"
+      class="[backface-visibility:hidden] [transform:translateZ(0)] mx-12px mb-[calc(60px+env(safe-area-inset-bottom))] overflow-hidden rounded-16px bg-white p-16px shadow-[0_-2px_20px_rgba(0,0,0,0.1)]"
+      @tap.stop="emit('openDetail')"
+      @click.stop="emit('openDetail')"
       @touchstart="onTouchStart"
       @touchmove="onTouchMove"
       @touchend="onTouchEnd"
     >
-      <view class="drag-bar" />
+      <view class="mx-auto mb-12px h-4px w-36px rounded-2px bg-#e0e0e0" />
 
-      <view class="flex gap-3" @click="emit('openDetail')">
-        <view class="search-place-card-avatar">
+      <view class="flex gap-3">
+        <view class="h-80px w-80px center flex-shrink-0 rounded-full bg-[linear-gradient(135deg,#fff1e8_0%,#ffe4d4_100%)]">
           <view class="i-carbon-location-filled text-24px text-blue-500" />
         </view>
         <view class="min-w-0 flex-1">
@@ -91,28 +103,24 @@ function onTouchEnd() {
         </view>
       </view>
 
-      <view class="card-expanded-meta card-expanded-meta--inline">
-        <text v-for="meta in props.metaList" :key="meta" class="card-expanded-meta__item">
+      <view class="mt-12px mt-8px flex flex-wrap gap-8px">
+        <text v-for="meta in props.metaList" :key="meta" class="inline-flex items-center rounded-full bg-#fff7ed px-10px py-4px text-11px text-#ea580c">
           {{ meta }}
         </text>
       </view>
 
-      <view v-if="props.descriptionText" class="card-description">
+      <view v-if="props.descriptionText" class="mt-10px text-12px text-gray-500 leading-1.7">
         {{ props.descriptionText }}
       </view>
 
-      <view class="card-actions">
-        <view class="card-action-btn" @click.stop="emit('toggleFavorite')">
+      <view class="mt-12px flex justify-around border-t border-#f0f0f0 pt-12px">
+        <view class="home-map-action-btn" @touchstart.stop="notifyCardInteract" @tap.stop="emit('toggleFavorite')" @click.stop="emit('toggleFavorite')">
           <view :class="props.isFavorited ? 'i-carbon-favorite-filled text-red-500' : 'i-carbon-favorite text-gray-400'" class="text-18px" />
           <text class="text-11px" :class="props.isFavorited ? 'text-red-500' : 'text-gray-400'">
             {{ props.isFavorited ? '已收藏' : '收藏' }}
           </text>
         </view>
-        <view class="card-action-btn" @click.stop="emit('openDetail')">
-          <view class="i-carbon-view text-18px text-orange-500" />
-          <text class="text-11px text-orange-500">查看详情</text>
-        </view>
-        <view class="card-action-btn" @click.stop="emit('openLocation')">
+        <view class="home-map-action-btn" @touchstart.stop="notifyCardInteract" @tap.stop="emit('openLocation')" @click.stop="emit('openLocation')">
           <view class="i-carbon-location-filled text-18px text-blue-500" />
           <text class="text-11px text-blue-500">路线</text>
         </view>
@@ -120,106 +128,3 @@ function onTouchEnd() {
     </view>
   </view>
 </template>
-
-<style lang="scss" scoped>
-.bottom-card {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 200;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate3d(0, calc(100% + 18px), 0);
-  will-change: transform, opacity;
-  transition:
-    transform 0.24s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.18s ease-out;
-  contain: layout style paint;
-
-  &--show {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translate3d(0, 0, 0);
-  }
-}
-
-.card-content {
-  margin: 0 12px;
-  margin-bottom: calc(60px + env(safe-area-inset-bottom));
-  padding: 16px;
-  background: #fff;
-  border-radius: 16px;
-  box-shadow: 0 -2px 20px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
-  transform: translateZ(0);
-  backface-visibility: hidden;
-}
-
-.drag-bar {
-  width: 36px;
-  height: 4px;
-  background: #e0e0e0;
-  border-radius: 2px;
-  margin: 0 auto 12px;
-}
-
-.search-place-card-avatar {
-  width: 80px;
-  height: 80px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #fff1e8 0%, #ffe4d4 100%);
-}
-
-.card-actions {
-  display: flex;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #f0f0f0;
-  justify-content: space-around;
-}
-
-.card-expanded-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.card-description {
-  margin-top: 10px;
-  font-size: 12px;
-  line-height: 1.7;
-  color: #6b7280;
-}
-
-.card-expanded-meta--inline {
-  margin-top: 12px;
-}
-
-.card-expanded-meta__item {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: #fff7ed;
-  font-size: 11px;
-  color: #ea580c;
-}
-
-.card-action-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 16px;
-
-  &:active {
-    opacity: 0.6;
-  }
-}
-</style>

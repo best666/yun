@@ -41,6 +41,13 @@ const spotName = computed(() => spotDetail.value?.name || detailQuery.title || '
 const discussions = computed(() => spotDetail.value?.discussions ?? [])
 const reviews = computed(() => spotDetail.value?.reviews ?? [])
 const questions = computed(() => spotDetail.value?.questions ?? [])
+const reviewFilterPills = computed(() => {
+  return [
+    { key: 'time', label: '按时间', active: reviewSortKey.value === 'time', onClick: () => switchReviewSort('time') },
+    { key: 'hot', label: '按热度', active: reviewSortKey.value === 'hot', onClick: () => switchReviewSort('hot') },
+    { key: 'images', label: '只看有图', active: withImagesOnly.value, onClick: toggleWithImagesOnly },
+  ]
+})
 
 const filteredReviews = computed(() => {
   const sourceReviews = withImagesOnly.value
@@ -271,20 +278,20 @@ function toggleWithImagesOnly() {
       <view class="h-36px w-36px" />
     </view>
 
-    <view v-if="loading" class="min-h-70vh center flex-col gap-16px">
-      <text class="text-14px text-gray-500">正在加载内容...</text>
+    <view v-if="loading" class="spot-more-status-wrap">
+      <text class="spot-more-status-text">正在加载内容...</text>
     </view>
 
-    <view v-else-if="loadError" class="min-h-70vh center flex-col gap-16px">
-      <text class="text-14px text-gray-500">{{ loadError }}</text>
+    <view v-else-if="loadError" class="spot-more-status-wrap">
+      <text class="spot-more-status-text">{{ loadError }}</text>
       <view class="rounded-full bg-#ff7d45 px-18px py-10px text-13px text-white" @click="fetchSpotDetail">
         重新加载
       </view>
     </view>
 
     <template v-else-if="spotDetail">
-      <view v-if="contentType === 'discussions'" class="px-14px pt-12px">
-        <view v-if="heatFeedItems.length === 0" class="rounded-18px bg-white px-14px py-22px text-center text-13px text-gray-400">
+      <view v-if="contentType === 'discussions'" class="spot-more-section">
+        <view v-if="heatFeedItems.length === 0" class="spot-more-empty-card">
           暂无讨论或问答内容
         </view>
 
@@ -294,25 +301,25 @@ function toggleWithImagesOnly() {
         </template>
       </view>
 
-      <view v-else-if="contentType === 'reviews'" class="px-14px pt-12px">
+      <view v-else-if="contentType === 'reviews'" class="spot-more-section">
         <view class="mb-12px flex items-center justify-between gap-12px">
           <view class="flex-shrink-0 text-12px text-gray-400">
             排序筛选
           </view>
           <view class="flex flex-wrap justify-end gap-8px">
-            <view class="rounded-full bg-white px-12px py-8px text-12px text-gray-500" :class="{ '!bg-gray-900 !text-white': reviewSortKey === 'time' }" @click="switchReviewSort('time')">
-              按时间
-            </view>
-            <view class="rounded-full bg-white px-12px py-8px text-12px text-gray-500" :class="{ '!bg-gray-900 !text-white': reviewSortKey === 'hot' }" @click="switchReviewSort('hot')">
-              按热度
-            </view>
-            <view class="rounded-full bg-white px-12px py-8px text-12px text-gray-500" :class="{ '!bg-gray-900 !text-white': withImagesOnly }" @click="toggleWithImagesOnly">
-              只看有图
+            <view
+              v-for="pill in reviewFilterPills"
+              :key="pill.key"
+              class="rounded-full bg-white px-12px py-8px text-12px text-gray-500"
+              :class="pill.active ? '!bg-gray-900 !text-white' : ''"
+              @click="pill.onClick()"
+            >
+              {{ pill.label }}
             </view>
           </view>
         </view>
 
-        <view v-if="filteredReviews.length === 0" class="rounded-18px bg-white px-14px py-22px text-center text-13px text-gray-400">
+        <view v-if="filteredReviews.length === 0" class="spot-more-empty-card">
           暂无评价内容
         </view>
 

@@ -1,10 +1,11 @@
 <script lang="ts" setup>
 import type { ISpotReviewItem } from '@/api/types/spot'
+import type { SpotDetailPanelViewModel } from '@/utils/spotDetailView'
 import SpotReviewCard from '@/components/spot/SpotReviewCard.vue'
 
 const props = defineProps<{
+  panel: SpotDetailPanelViewModel
   reviews: ISpotReviewItem[]
-  hasMore: boolean
   buildAnchorId: (reviewId: string) => string
   isHighlighted: (reviewId: string) => boolean
 }>()
@@ -20,30 +21,30 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <view class="content-panel">
-    <view class="panel-section panel-section--split">
-      <view class="panel-header">
+  <view class="spot-detail-panel">
+    <view class="spot-detail-panel-split">
+      <view class="spot-detail-panel-header">
         <view>
-          <view class="panel-title">
-            用户评价
+          <view class="spot-detail-panel-title">
+            {{ props.panel.title }}
           </view>
-          <view class="panel-subtitle">
-            评分、图文和现场定位都会展示在这里
+          <view class="spot-detail-panel-subtitle">
+            {{ props.panel.subtitle }}
           </view>
         </view>
-        <view class="panel-header__actions">
-          <view v-if="props.hasMore" class="panel-link" @click="emit('openMore')">
-            全部
-            <text class="panel-link__arrow">›</text>
+        <view class="spot-detail-panel-actions">
+          <view v-if="props.panel.moreText" class="spot-detail-panel-link" @click="emit('openMore')">
+            {{ props.panel.moreText }}
+            <text class="spot-detail-panel-link-arrow">›</text>
           </view>
-          <view class="panel-action" @click="emit('openReview')">
+          <view class="spot-detail-panel-action" @click="emit('openReview')">
             写评价
           </view>
         </view>
       </view>
 
-      <view v-if="props.reviews.length === 0" class="empty-card">
-        还没有评价，来留下第一条印象吧
+      <view v-if="props.reviews.length === 0" class="spot-detail-panel-empty">
+        {{ props.panel.emptyText }}
       </view>
 
       <SpotReviewCard
@@ -65,76 +66,3 @@ const emit = defineEmits<{
     </view>
   </view>
 </template>
-
-<style lang="scss" scoped>
-.content-panel {
-  margin-top: 0;
-  border-radius: 0 0 28px 28px;
-  padding: 18px 18px calc(28px + env(safe-area-inset-bottom));
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(255, 255, 255, 0.74);
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05);
-  backdrop-filter: blur(14px);
-}
-
-.panel-section--split {
-  padding-top: 4px;
-}
-
-.panel-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 16px;
-}
-
-.panel-header__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.panel-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: #111827;
-}
-
-.panel-subtitle {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #9ca3af;
-}
-
-.panel-action {
-  flex-shrink: 0;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: #fff3ee;
-  color: #ef5a32;
-  font-size: 12px;
-}
-
-.panel-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  color: #9ca3af;
-  font-size: 12px;
-}
-
-.panel-link__arrow {
-  font-size: 13px;
-  line-height: 1;
-}
-
-.empty-card {
-  padding: 22px 14px;
-  text-align: center;
-  border-radius: 18px;
-  background: #f8f9fb;
-  color: #9ca3af;
-  font-size: 13px;
-}
-</style>

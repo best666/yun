@@ -20,9 +20,10 @@ import type {
   IToggleSpotReviewLikeResult,
 } from './types/spot'
 import { http } from '@/http/http'
+import { normalizeSpotDetail, normalizeSpotReview, normalizeSpotReviewReply } from '@/utils/spotDetailNormalize'
 
 export function getSpotDetail(params: ISpotDetailQuery) {
-  return http.get<ISpotDetail>('/api/spot/detail', params)
+  return http.get<ISpotDetail>('/api/spot/detail', params).then(detail => normalizeSpotDetail(detail, params))
 }
 
 export function getSpotFavoriteList() {
@@ -34,11 +35,11 @@ export function toggleSpotFavorite(data: IToggleSpotFavoritePayload) {
 }
 
 export function createSpotReview(data: ICreateSpotReviewPayload) {
-  return http.post<ISpotReviewItem>('/api/spot/review', data)
+  return http.post<ISpotReviewItem>('/api/spot/review', data).then(review => normalizeSpotReview(review))
 }
 
 export function createSpotReviewReply(data: ICreateSpotReviewReplyPayload) {
-  return http.post<ISpotReviewReplyItem>('/api/spot/review/reply', data)
+  return http.post<ISpotReviewReplyItem>('/api/spot/review/reply', data).then(reply => normalizeSpotReviewReply(reply))
 }
 
 export function getMySpotReviews() {

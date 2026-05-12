@@ -31,6 +31,7 @@ const currentMapProvider = getCurrentMapProvider()
 const currentMapProviderLabel = currentMapProvider === 'amap' ? '高德地图' : '腾讯地图'
 const DEFAULT_NEARBY_KEYWORD = '美食'
 const SEARCH_PLACE_MARKER_BASE_ID = 900000
+const CARD_INTERACTION_GUARD_MS = 400
 
 const {
   mapCenter,
@@ -119,6 +120,8 @@ const markers = computed(() => {
   })
 })
 
+const mapCardInteractionUntil = ref(0)
+
 onLoad(() => {
   locateOnPageOpen()
   void favoriteStore.ensureServerFavoritesLoaded()
@@ -196,8 +199,31 @@ function onCalloutTap(event: any) {
 
 function onMapTap() {
   if (showBottomCard.value) {
-    clearSelection()
+    return
   }
+
+  if (Date.now() < mapCardInteractionUntil.value) {
+    return
+  }
+}
+
+function guardMapTapFromCardInteraction() {
+  mapCardInteractionUntil.value = Date.now() + CARD_INTERACTION_GUARD_MS
+}
+
+function handleCardOpenDetail() {
+  guardMapTapFromCardInteraction()
+  openSelectedMapPlaceDetail()
+}
+
+function handleCardToggleFavorite() {
+  guardMapTapFromCardInteraction()
+  void toggleSelectedMapPlaceFavorite()
+}
+
+function handleCardOpenLocation() {
+  guardMapTapFromCardInteraction()
+  openMapPlaceLocation()
 }
 
 function onMapRegionChange(event: any) {
@@ -218,9 +244,9 @@ function refreshNearbyAroundCenter() {
 </script>
 
 <template>
-  <view class="page-map">
+  <view class="relative h-screen w-screen">
     <map
-      class="map-full"
+      class="h-full w-full"
       :latitude="mapCenter.latitude"
       :longitude="mapCenter.longitude"
       :markers="markers"
@@ -236,8 +262,10 @@ function refreshNearbyAroundCenter() {
       @regionchange="onMapRegionChange"
     />
 
-    <view class="search-bar">
-      <view class="search-input" @click="handleOpenSearch">
+    <view v-if="showBottomCard" class="fixed inset-0 z-90" @tap="clearSelection" @click="clearSelection" />
+
+    <view class="fixed left-0 right-0 top-0 z-100 px-16px pb-10px pt-[calc(env(safe-area-inset-top)+10px)]">
+      <view class="flex items-center rounded-24px bg-[rgba(255,255,255,0.95)] px-16px py-10px shadow-[0_2px_12px_rgba(0,0,0,0.08)]" @click="handleOpenSearch">
         <view class="i-carbon-search text-16px text-gray-400" />
         <text class="ml-2 text-14px text-gray-400">搜索美食地点</text>
       </view>
@@ -257,15 +285,15 @@ function refreshNearbyAroundCenter() {
       @select-user="onUserSearchResultTap"
     />
 
-    <view class="relocate-btn" @click="relocate">
+    <view class="fixed bottom-[calc(160px+env(safe-area-inset-bottom))] right-16px z-100 h-44px w-44px center rounded-full bg-white shadow-[0_2px_12px_rgba(0,0,0,0.1)] active:scale-90" @click="relocate">
       <view class="i-carbon-location-current text-20px text-gray-600" />
     </view>
 
-    <view v-if="shouldShowNearbyRefresh" class="nearby-refresh-btn" @click="refreshNearbyAroundCenter">
+    <view v-if="shouldShowNearbyRefresh" class="fixed bottom-[calc(220px+env(safe-area-inset-bottom))] left-1/2 z-110 rounded-full bg-[rgba(255,255,255,0.96)] px-16px py-10px text-13px text-#ea580c font-600 shadow-[0_10px_24px_rgba(15,23,42,0.12)] -translate-x-1/2" @click="refreshNearbyAroundCenter">
       搜索此区域
     </view>
 
-    <view v-if="isLoadingNearbyPlaces && !showSearchPanel" class="nearby-loading-tip">
+    <view v-if="isLoadingNearbyPlaces && !showSearchPanel" class="fixed bottom-[calc(222px+env(safe-area-inset-bottom))] left-1/2 z-110 rounded-full bg-[rgba(17,24,39,0.74)] px-14px py-8px text-12px text-white -translate-x-1/2">
       正在加载附近地点...
     </view>
 
@@ -280,89 +308,11 @@ function refreshNearbyAroundCenter() {
       :description-text="selectedMapPlaceDescription"
       :is-loading-detail="isLoadingSelectedSpotDetail"
       :is-favorited="favoriteStore.isFavorited(selectedMapPlaceFavoriteId)"
-      @open-detail="openSelectedMapPlaceDetail"
-      @toggle-favorite="toggleSelectedMapPlaceFavorite"
-      @open-location="openMapPlaceLocation"
+      @card-interact="guardMapTapFromCardInteraction"
+      @open-detail="handleCardOpenDetail"
+      @toggle-favorite="handleCardToggleFavorite"
+      @open-location="handleCardOpenLocation"
       @close="clearSelection"
     />
   </view>
 </template>
-
-<style lang="scss" scoped>
-.page-map {
-  position: relative;
-  width: 100vw;
-  height: 100vh;
-}
-
-.map-full {
-  width: 100%;
-  height: 100%;
-}
-
-.search-bar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
-  z-index: 100;
-}
-
-.search-input {
-  display: flex;
-  align-items: center;
-  padding: 10px 16px;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 24px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-}
-
-.relocate-btn {
-  position: fixed;
-  right: 16px;
-  bottom: calc(160px + env(safe-area-inset-bottom));
-  width: 44px;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #fff;
-  border-radius: 50%;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
-  z-index: 100;
-  transition: transform 0.2s;
-
-  &:active {
-    transform: scale(0.9);
-  }
-}
-
-.nearby-refresh-btn {
-  position: fixed;
-  left: 50%;
-  bottom: calc(220px + env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  padding: 10px 16px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.96);
-  color: #ea580c;
-  font-size: 13px;
-  font-weight: 600;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
-  z-index: 110;
-}
-
-.nearby-loading-tip {
-  position: fixed;
-  left: 50%;
-  bottom: calc(222px + env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: rgba(17, 24, 39, 0.74);
-  color: #fff;
-  font-size: 12px;
-  z-index: 110;
-}
-</style>

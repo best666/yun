@@ -68,8 +68,8 @@ const emit = defineEmits<{
           <view
             v-for="option in props.navigationMapOptions"
             :key="option.value"
-            class="map-provider-chip"
-            :class="{ '!border-#ff8c42 !bg-#fff4ed !text-#ea580c': props.selectedMapApp === option.value }"
+            class="min-w-88px border border-#e5e7eb rounded-full bg-#f9fafb px-14px py-8px text-center text-13px text-gray-500"
+            :class="props.selectedMapApp === option.value ? '!border-#ff8c42 !bg-#fff4ed !text-#ea580c' : ''"
             @click.stop="emit('selectMapApp', option.value)"
           >
             {{ option.label }}
@@ -93,16 +93,3 @@ const emit = defineEmits<{
     </view>
   </view>
 </template>
-
-<style lang="scss" scoped>
-.map-provider-chip {
-  min-width: 88px;
-  padding: 8px 14px;
-  border: 1px solid #e5e7eb;
-  border-radius: 999px;
-  background: #f9fafb;
-  font-size: 13px;
-  color: #6b7280;
-  text-align: center;
-}
-</style>

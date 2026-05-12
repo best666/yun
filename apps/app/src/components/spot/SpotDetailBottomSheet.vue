@@ -12,59 +12,13 @@ const emit = defineEmits<{
 
 <template>
   <view v-if="props.rendered">
-    <view class="sheet-overlay" :class="{ 'sheet-overlay--show': props.visible }" @click="emit('close')" />
-    <view class="review-sheet" :class="{ 'review-sheet--show': props.visible }" @click.stop>
-      <view class="sheet-handle" />
-      <view class="review-sheet__title">
+    <view class="fixed inset-0 z-999 bg-[rgba(15,23,42,0)] transition-colors duration-260 ease-[ease]" :class="props.visible ? 'bg-[rgba(15,23,42,0.45)]' : ''" @click="emit('close')" />
+    <view class="fixed bottom-0 left-0 right-0 z-1000 translate-y-full rounded-t-24px bg-white px-18px pb-[calc(18px+env(safe-area-inset-bottom))] pt-12px transition-transform duration-260 ease-[ease]" :class="props.visible ? 'translate-y-0' : ''" @click.stop>
+      <view class="mx-auto mb-14px h-4px w-44px rounded-full bg-[rgba(107,114,128,0.22)]" />
+      <view class="text-center text-16px text-#111827 font-700">
         {{ props.title }}
       </view>
       <slot />
     </view>
   </view>
 </template>
-
-<style lang="scss" scoped>
-.sheet-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0);
-  z-index: 999;
-  transition: background 0.26s ease;
-}
-
-.sheet-overlay--show {
-  background: rgba(15, 23, 42, 0.45);
-}
-
-.review-sheet {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1000;
-  padding: 12px 18px calc(18px + env(safe-area-inset-bottom));
-  background: #fff;
-  border-radius: 24px 24px 0 0;
-  transform: translateY(100%);
-  transition: transform 0.26s ease;
-}
-
-.review-sheet--show {
-  transform: translateY(0);
-}
-
-.sheet-handle {
-  width: 44px;
-  height: 4px;
-  border-radius: 999px;
-  background: rgba(107, 114, 128, 0.22);
-  margin: 0 auto 14px;
-}
-
-.review-sheet__title {
-  font-size: 16px;
-  font-weight: 700;
-  color: #111827;
-  text-align: center;
-}
-</style>

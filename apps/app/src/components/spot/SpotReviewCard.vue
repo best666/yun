@@ -52,8 +52,8 @@ function getReplyAvatar(avatar?: string) {
 </script>
 
 <template>
-  <view class="review-card" :class="props.highlighted ? 'review-card--highlighted' : ''">
-    <view class="review-card__header">
+  <view class="mt-12px border border-[rgba(255,255,255,0.92)] rounded-22px bg-[linear-gradient(180deg,#ffffff_0%,#fffdfa_100%)] p-16px shadow-[0_14px_28px_rgba(15,23,42,0.06)]" :class="props.highlighted ? 'border-[rgba(251,146,60,0.38)] shadow-[0_16px_34px_rgba(249,115,22,0.14)]' : ''">
+    <view class="flex items-start justify-between gap-12px">
       <view class="min-w-0 flex items-center gap-10px">
         <image :src="reviewUserAvatar" class="h-42px w-42px flex-shrink-0 rounded-full ring-1 ring-black/4" mode="aspectFill" />
         <view class="min-w-0">
@@ -66,7 +66,7 @@ function getReplyAvatar(avatar?: string) {
         </view>
       </view>
 
-      <view class="review-card__meta">
+      <view class="flex items-center gap-8px">
         <view v-if="hasReviewImages" class="rounded-full bg-#fff1e8 px-9px py-5px text-11px text-#ef5a32">
           有图
         </view>
@@ -84,18 +84,18 @@ function getReplyAvatar(avatar?: string) {
       </view>
     </view>
 
-    <view class="review-card__content">
+    <view class="mt-12px text-wrap text-14px text-gray-700">
       {{ props.review.content }}
     </view>
 
-    <view v-if="props.review.locationName || props.review.locationAddress" class="review-card__location">
+    <view v-if="props.review.locationName || props.review.locationAddress" class="mt-10px flex items-center gap-6px">
       <view class="i-carbon-location-filled text-14px text-orange-500" />
       <text class="text-12px text-orange-800 leading-1.6">
         {{ props.review.locationName || props.review.locationAddress }}
       </text>
     </view>
 
-    <view v-if="hasReviewImages" class="review-card__images">
+    <view v-if="hasReviewImages" class="mt-12px flex gap-10px overflow-x-auto pb-2px">
       <image
         v-for="image in reviewImages"
         :key="`${props.review.id}-${image}`"
@@ -106,7 +106,7 @@ function getReplyAvatar(avatar?: string) {
       />
     </view>
 
-    <view class="review-card__actions">
+    <view class="mt-12px inline-flex items-center gap-6px text-12px text-gray-400">
       <view class="inline-flex items-center gap-6px" @click="emit('like', props.review.id)">
         <view :class="props.review.likedByCurrentUser ? 'i-carbon-thumbs-up-filled text-orange-500' : 'i-carbon-thumbs-up text-gray-400'" class="text-14px" />
         <text>{{ props.review.likeCount }}</text>
@@ -117,7 +117,7 @@ function getReplyAvatar(avatar?: string) {
       </view>
     </view>
 
-    <view v-if="hasReviewReplies" class="review-card__replies">
+    <view v-if="hasReviewReplies" class="mt-12px rounded-16px bg-#f8f9fb p-12px">
       <view v-for="(reply, index) in previewReplies" :key="reply.id" class="flex gap-10px" :class="index > 0 ? 'mt-10px' : ''">
         <image :src="getReplyAvatar(reply.avatar)" class="h-28px w-28px flex-shrink-0 rounded-full ring-1 ring-black/4" mode="aspectFill" />
         <view class="min-w-0 flex-1">
@@ -136,82 +136,9 @@ function getReplyAvatar(avatar?: string) {
         </view>
       </view>
 
-      <view v-if="props.showMoreRepliesText && props.review.replyCount > previewReplies.length" class="review-card__more-replies" @click="emit('moreReplies', props.review.id)">
+      <view v-if="props.showMoreRepliesText && props.review.replyCount > previewReplies.length" class="mt-10px text-12px text-#ef5a32" @click="emit('moreReplies', props.review.id)">
         {{ props.showMoreRepliesText }}
       </view>
     </view>
   </view>
 </template>
-
-<style lang="scss" scoped>
-.review-card {
-  margin-top: 12px;
-  border-radius: 22px;
-  padding: 16px;
-  background: linear-gradient(180deg, #ffffff 0%, #fffdfa 100%);
-  border: 1px solid rgba(255, 255, 255, 0.92);
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.06);
-}
-
-.review-card--highlighted {
-  border-color: rgba(251, 146, 60, 0.38);
-  box-shadow: 0 16px 34px rgba(249, 115, 22, 0.14);
-}
-
-.review-card__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.review-card__meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.review-card__content {
-  margin-top: 12px;
-  font-size: 14px;
-  line-height: 1.75;
-  color: #374151;
-}
-
-.review-card__location {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.review-card__images {
-  display: flex;
-  gap: 10px;
-  overflow-x: auto;
-  margin-top: 12px;
-  padding-bottom: 2px;
-}
-
-.review-card__actions {
-  margin-top: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: #9ca3af;
-}
-
-.review-card__replies {
-  margin-top: 12px;
-  padding: 12px;
-  border-radius: 16px;
-  background: #f8f9fb;
-}
-
-.review-card__more-replies {
-  margin-top: 10px;
-  font-size: 12px;
-  color: #ef5a32;
-}
-</style>

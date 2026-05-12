@@ -1,5 +1,6 @@
 import type { ISpotDetail, ISpotDetailQuery } from '@/api/types/spot'
 import { getSpotDetail } from '@/api/spot'
+import { normalizeSpotDetail } from './spotDetailNormalize'
 
 const spotDetailCache = new Map<string, ISpotDetail>()
 const pendingSpotDetailRequests = new Map<string, Promise<ISpotDetail>>()
@@ -26,16 +27,17 @@ export function getCachedSpotDetail(query: ISpotDetailQuery) {
 }
 
 export function setCachedSpotDetail(query: ISpotDetailQuery, detail: ISpotDetail) {
+  const normalizedDetail = normalizeSpotDetail(detail, query)
   const cacheKeys = new Set<string>([
     buildSpotDetailCacheKey(query),
-    buildSpotDetailCacheKey({ id: detail.id }),
+    buildSpotDetailCacheKey({ id: normalizedDetail.id }),
   ])
 
   cacheKeys.forEach((cacheKey) => {
-    spotDetailCache.set(cacheKey, detail)
+    spotDetailCache.set(cacheKey, normalizedDetail)
   })
 
-  return detail
+  return normalizedDetail
 }
 
 export async function fetchAndCacheSpotDetail(query: ISpotDetailQuery, force = false) {
