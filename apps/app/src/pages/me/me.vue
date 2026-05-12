@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import type { FavoriteSpotSummary } from '@/api/types/spot'
+import type { FavoriteSpotSummary, ISpotInteractionNotificationItem } from '@/api/types/spot'
 import type { SpotDetail } from '@/store/spot'
 import { useFavoriteStore, useFootprintStore, useMapSettingStore, useSpotStore, useTokenStore, useUserContentStore, useUserStore } from '@/store'
 import { buildSpotDetailUrlFromFavorite } from '@/utils/spotDetail'
@@ -140,6 +140,14 @@ interface MenuItem {
   count?: () => number
 }
 
+/** 互动提醒分组项，避免模板里直接写复杂分类判断。 */
+interface NotificationGroupItem {
+  key: string
+  title: string
+  icon: string
+  items: ISpotInteractionNotificationItem[]
+}
+
 const menuList: MenuItem[] = [
   { icon: 'i-carbon-favorite', label: '我的收藏', action: 'favorites', count: () => favoriteStore.favoriteCount },
   { icon: 'i-carbon-star', label: '我的评价', action: 'reviews', count: () => userContentStore.reviewCount },
@@ -157,6 +165,42 @@ const expandedAction = ref('')
 
 /** 设置面板 */
 const showSettings = ref(false)
+
+/** 提醒类型标题映射，统一管理后续新增提醒类型的中文展示。 */
+const notificationGroupMetaMap: Record<string, { title: string, icon: string }> = {
+  discussion_like: { title: '点赞我的讨论', icon: 'i-carbon-thumbs-up' },
+  note_like: { title: '点赞我的笔记', icon: 'i-carbon-favorite' },
+  question_answer: { title: '回复我的问题', icon: 'i-carbon-chat' },
+  favorite_spot_new_review: { title: '收藏地新评价', icon: 'i-carbon-star' },
+  favorite_spot_new_discussion: { title: '收藏地新讨论', icon: 'i-carbon-chat-bot' },
+  favorite_spot_new_note: { title: '收藏地新笔记', icon: 'i-carbon-document' },
+  favorite_spot_new_question: { title: '收藏地新问答', icon: 'i-carbon-help' },
+}
+
+/** 将互动提醒按业务类型分组，减少列表混杂，提高扫读效率。 */
+const groupedNotifications = computed<NotificationGroupItem[]>(() => {
+  const groupedMap = new Map<string, NotificationGroupItem>()
+
+  userContentStore.notifications.forEach((notification) => {
+    const meta = notificationGroupMetaMap[notification.type] || {
+      title: '其他提醒',
+      icon: 'i-carbon-notification',
+    }
+
+    if (!groupedMap.has(notification.type)) {
+      groupedMap.set(notification.type, {
+        key: notification.type,
+        title: meta.title,
+        icon: meta.icon,
+        items: [],
+      })
+    }
+
+    groupedMap.get(notification.type)!.items.push(notification)
+  })
+
+  return Array.from(groupedMap.values())
+})
 
 const navigationMapOptions = [
   { label: '每次选择', value: 'ask' },
@@ -572,26 +616,35 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
       <view v-if="userContentStore.notifications.length === 0" class="py-8 text-center text-13px text-gray-400">
         暂时没有新的互动提醒
       </view>
-      <view v-for="notification in userContentStore.notifications" :key="notification.id" class="review-item" @click="notification.spotId ? goSpotDetail(notification.spotId) : undefined">
-        <view class="flex items-start justify-between gap-3">
-          <view class="min-w-0 flex flex-1 items-start gap-3">
-            <image :src="notification.actorAvatar" class="h-42px w-42px flex-shrink-0 rounded-full" mode="aspectFill" />
-            <view class="min-w-0 flex-1">
-              <view class="flex items-center gap-2">
-                <view class="truncate text-14px text-gray-800 font-medium">
-                  {{ notification.title }}
+      <view v-for="group in groupedNotifications" :key="group.key" class="notification-group">
+        <view class="notification-group__header">
+          <view class="flex items-center gap-2">
+            <view :class="group.icon" class="text-14px text-orange-500" />
+            <text class="notification-group__title">{{ group.title }}</text>
+          </view>
+          <text class="notification-group__count">{{ group.items.length }} 条</text>
+        </view>
+        <view v-for="notification in group.items" :key="notification.id" class="review-item" @click="notification.spotId ? goSpotDetail(notification.spotId) : undefined">
+          <view class="flex items-start justify-between gap-3">
+            <view class="min-w-0 flex flex-1 items-start gap-3">
+              <image :src="notification.actorAvatar" class="h-42px w-42px flex-shrink-0 rounded-full" mode="aspectFill" />
+              <view class="min-w-0 flex-1">
+                <view class="flex items-center gap-2">
+                  <view class="truncate text-14px text-gray-800 font-medium">
+                    {{ notification.title }}
+                  </view>
+                  <view v-if="!notification.isRead" class="h-8px w-8px flex-shrink-0 rounded-full bg-red-500" />
                 </view>
-                <view v-if="!notification.isRead" class="h-8px w-8px flex-shrink-0 rounded-full bg-red-500" />
-              </view>
-              <view class="mt-1 text-12px text-gray-500 leading-relaxed">
-                {{ notification.actorName }} {{ notification.content }}
-              </view>
-              <view v-if="notification.spotName" class="mt-2 inline-flex rounded-999px bg-orange-50 px-2 py-1 text-11px text-orange-500">
-                {{ notification.spotName }}
+                <view class="mt-1 text-12px text-gray-500 leading-relaxed">
+                  {{ notification.actorName }} {{ notification.content }}
+                </view>
+                <view v-if="notification.spotName" class="mt-2 inline-flex rounded-999px bg-orange-50 px-2 py-1 text-11px text-orange-500">
+                  {{ notification.spotName }}
+                </view>
               </view>
             </view>
+            <text class="flex-shrink-0 text-11px text-gray-400">{{ notification.time }}</text>
           </view>
-          <text class="flex-shrink-0 text-11px text-gray-400">{{ notification.time }}</text>
         </view>
       </view>
     </view>
@@ -936,6 +989,31 @@ function setNavigationMapApp(mapApp: 'ask' | 'system' | 'tencent' | 'amap') {
   &:last-child {
     border-bottom: none;
   }
+}
+
+/* 提醒分组头部，用来在长列表里快速区分提醒来源。 */
+.notification-group {
+  & + & {
+    margin-top: 8px;
+  }
+}
+
+.notification-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0 4px;
+}
+
+.notification-group__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.notification-group__count {
+  font-size: 11px;
+  color: #9ca3af;
 }
 
 .line-clamp-2 {

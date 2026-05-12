@@ -774,7 +774,7 @@ export class SpotService implements OnModuleInit {
 
   async createReview(dto: CreateSpotReviewDto, userId: number) {
     const user = await this.findUserOrThrow(userId);
-    await this.findSpotOrThrow(dto.spotId);
+    const spot = await this.findSpotOrThrow(dto.spotId);
 
     const review = await this.prisma.spotReview.create({
       data: {
@@ -789,6 +789,17 @@ export class SpotService implements OnModuleInit {
     });
 
     await this.refreshSpotRating(dto.spotId);
+    await this.notifyFavoriteFollowersOnSpotUpdate({
+      actorUserId: userId,
+      actorName: user.nickname || user.username || user.phone || `用户${user.id}`,
+      spotId: spot.id,
+      spotName: spot.name,
+      type: 'favorite_spot_new_review',
+      title: '你收藏的地点有新评价',
+      content: `在${spot.name}发布了新评价：${this.truncateText(review.content, 24)}`,
+      targetType: 'review',
+      targetId: review.id,
+    });
 
     return this.toReviewItem(review);
   }
@@ -809,12 +820,24 @@ export class SpotService implements OnModuleInit {
       },
     });
 
+    await this.notifyFavoriteFollowersOnSpotUpdate({
+      actorUserId: userId,
+      actorName: user.nickname || user.username || user.phone || `用户${user.id}`,
+      spotId: spot.id,
+      spotName: spot.name,
+      type: 'favorite_spot_new_note',
+      title: '你收藏的地点有新笔记',
+      content: `在${spot.name}发布了新笔记《${this.truncateText(note.title, 18)}》`,
+      targetType: 'note',
+      targetId: note.id,
+    });
+
     return this.toNoteItem(note, userId);
   }
 
   async createQuestion(dto: CreateSpotQuestionDto, userId: number) {
     const user = await this.findUserOrThrow(userId);
-    await this.findSpotOrThrow(dto.spotId);
+    const spot = await this.findSpotOrThrow(dto.spotId);
 
     const question = await this.prisma.spotQuestion.create({
       data: {
@@ -829,6 +852,18 @@ export class SpotService implements OnModuleInit {
           orderBy: { createdAt: 'asc' },
         },
       },
+    });
+
+    await this.notifyFavoriteFollowersOnSpotUpdate({
+      actorUserId: userId,
+      actorName: user.nickname || user.username || user.phone || `用户${user.id}`,
+      spotId: spot.id,
+      spotName: spot.name,
+      type: 'favorite_spot_new_question',
+      title: '你收藏的地点有新问答',
+      content: `在${spot.name}发起了新问题：${this.truncateText(question.question, 24)}`,
+      targetType: 'question',
+      targetId: question.id,
     });
 
     return this.toQuestionItem(question, userId);
@@ -870,7 +905,7 @@ export class SpotService implements OnModuleInit {
 
   async createDiscussion(dto: CreateSpotDiscussionDto, userId: number) {
     const user = await this.findUserOrThrow(userId);
-    await this.findSpotOrThrow(dto.spotId);
+    const spot = await this.findSpotOrThrow(dto.spotId);
 
     const discussion = await this.prisma.spotDiscussion.create({
       data: {
@@ -880,6 +915,18 @@ export class SpotService implements OnModuleInit {
         avatar: user.avatar || '/static/images/default-avatar.png',
         content: dto.content.trim(),
       },
+    });
+
+    await this.notifyFavoriteFollowersOnSpotUpdate({
+      actorUserId: userId,
+      actorName: user.nickname || user.username || user.phone || `用户${user.id}`,
+      spotId: spot.id,
+      spotName: spot.name,
+      type: 'favorite_spot_new_discussion',
+      title: '你收藏的地点有新讨论',
+      content: `在${spot.name}发布了新讨论：${this.truncateText(discussion.content, 24)}`,
+      targetType: 'discussion',
+      targetId: discussion.id,
     });
 
     return this.toDiscussionItem(discussion, false, userId);
@@ -1502,6 +1549,48 @@ export class SpotService implements OnModuleInit {
         targetType: params.targetType,
         targetId: params.targetId,
       },
+    });
+  }
+
+  /** 收藏后的上新提醒会面向多个用户，这里统一批量写入，避免在各个创建方法里重复拼接列表。 */
+  private async notifyFavoriteFollowersOnSpotUpdate(params: {
+    actorUserId: number;
+    actorName: string;
+    spotId: number;
+    spotName: string;
+    type: string;
+    title: string;
+    content: string;
+    targetType: string;
+    targetId: number;
+  }) {
+    const favorites = await this.prisma.spotFavorite.findMany({
+      where: {
+        spotId: params.spotId,
+        userId: {
+          not: params.actorUserId,
+        },
+      },
+      select: {
+        userId: true,
+      },
+    });
+
+    if (favorites.length === 0) {
+      return;
+    }
+
+    await this.prisma.spotInteractionNotification.createMany({
+      data: favorites.map(favorite => ({
+        recipientUserId: favorite.userId,
+        actorUserId: params.actorUserId,
+        spotId: params.spotId,
+        type: params.type,
+        title: params.title,
+        content: `${params.actorName}${params.content}`,
+        targetType: params.targetType,
+        targetId: params.targetId,
+      })),
     });
   }
 
