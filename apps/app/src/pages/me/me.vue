@@ -486,7 +486,7 @@ function setNavigationMapApp(mapApp: NavigationMapApp) {
       @login="toLoginPage()"
     />
 
-    <MeMenuPanel :items="menuItems" @select="onMenuTap" />
+    <MeMenuPanel :items="menuItems" @itemtap="onMenuTap" />
 
     <MeBottomSheet
       :rendered="Boolean(sheetAction)"

@@ -12,11 +12,11 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  select: [action: string]
+  itemtap: [action: string]
 }>()
 
 function handleSelect(action: string) {
-  emit('select', action)
+  emit('itemtap', action)
 }
 </script>
 
@@ -25,10 +25,9 @@ function handleSelect(action: string) {
     <view
       v-for="(item, index) in props.items"
       :key="item.action"
-      class="flex items-center justify-between border-b border-#f5f5f5 py-16px active:opacity-70"
+      class="flex items-center justify-between border-b border-#f5f5f5 py-16px transition-opacity duration-180 active:opacity-70"
       :class="{ 'border-b-0': index === props.items.length - 1 }"
       @tap="handleSelect(item.action)"
-      @click="handleSelect(item.action)"
     >
       <view class="flex items-center gap-3">
         <view :class="item.icon" class="text-20px text-orange-500" />
@@ -37,7 +36,10 @@ function handleSelect(action: string) {
           ({{ item.count }})
         </text>
       </view>
-      <view class="text-16px text-gray-300" :class="item.expanded ? 'i-carbon-chevron-down' : 'i-carbon-chevron-right'" />
+      <view
+        class="text-16px text-gray-300 transition-transform duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]"
+        :class="item.expanded ? 'i-carbon-chevron-down translate-y-1px' : 'i-carbon-chevron-right'"
+      />
     </view>
   </view>
 </template>
