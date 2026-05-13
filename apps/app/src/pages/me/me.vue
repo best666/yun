@@ -9,6 +9,7 @@ import MeReviewReplyItem from '@/components/me/MeReviewReplyItem.vue'
 import MeSectionCard from '@/components/me/MeSectionCard.vue'
 import MeSettingsPanel from '@/components/me/MeSettingsPanel.vue'
 import MeSpotSummaryItem from '@/components/me/MeSpotSummaryItem.vue'
+import { APP_LEGAL_PAGES } from '@/config/appMeta'
 import { useFavoriteStore, useFootprintStore, useMapSettingStore, useTokenStore, useUserContentStore, useUserStore } from '@/store'
 import { buildSpotDetailUrlFromFavorite } from '@/utils/spotDetail'
 import { fetchAndCacheSpotDetail } from '@/utils/spotDetailCache'
@@ -457,6 +458,16 @@ function showAbout() {
   uni.navigateTo({ url: '/pages/about/about' })
 }
 
+function showAgreement() {
+  closeSheet()
+  uni.navigateTo({ url: APP_LEGAL_PAGES.agreement })
+}
+
+function showPrivacy() {
+  closeSheet()
+  uni.navigateTo({ url: APP_LEGAL_PAGES.privacy })
+}
+
 async function handleLogout() {
   await tokenStore.logout()
   closeSheet()
@@ -599,6 +610,8 @@ function setNavigationMapApp(mapApp: NavigationMapApp) {
         @clear-cache="clearCache"
         @select-map-app="setNavigationMapApp"
         @show-about="showAbout"
+        @show-agreement="showAgreement"
+        @show-privacy="showPrivacy"
         @logout="handleLogout"
       />
     </MeBottomSheet>

@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { APP_LEGAL_PAGES, APP_NAME } from '@/config/appMeta'
 import { useLoginPage } from '@/hooks/useLoginPage'
 
 defineOptions({
@@ -29,18 +30,22 @@ const {
   handleMiniProgramLogin,
   startOauthLogin,
 } = useLoginPage()
+
+function openLegalPage(url: string) {
+  uni.navigateTo({ url })
+}
 </script>
 
 <template>
   <view class="min-h-screen bg-[radial-gradient(circle_at_top_right,rgba(255,170,118,0.28),transparent_32%),linear-gradient(180deg,#fff7f2_0%,#fff_46%,#fff5ed_100%)] px-18px pb-[calc(env(safe-area-inset-bottom)+24px)] pt-[calc(env(safe-area-inset-top)+24px)]">
     <view class="auth-card p-[24px_20px]">
       <view class="text-12px text-#ff7b4a tracking-[0.16em] uppercase">
-        云南美食地图
+        {{ APP_NAME }}
       </view>
       <view class="mt-12px text-24px text-#2b211c font-700 leading-1.35">
         登录后同步你的收藏、足迹与偏好
       </view>
-      <view class="mt-10px text-14px text-#7a675d leading-1.7">
+      <view class="mt-10px text-14px text-#7a675d" style="line-height: 24px;">
         小程序使用微信快捷登录，H5 支持手机验证码和第三方账号登录。
       </view>
     </view>
@@ -50,7 +55,7 @@ const {
       <view class="text-17px text-#2b211c font-700">
         微信小程序登录
       </view>
-      <view class="mt-8px text-13px text-#8a7569 leading-1.7">
+      <view class="mt-8px text-13px text-#8a7569" style="line-height: 22px;">
         授权后将自动创建或绑定你的账号。
       </view>
       <button class="auth-primary-btn" :loading="isSubmitting" :disabled="isMiniProgramLoginDisabled" @click="handleMiniProgramLogin">
@@ -88,16 +93,31 @@ const {
           抖音登录
         </button>
       </view>
-      <view class="mt-8px text-13px text-#8a7569 leading-1.7">
+      <view class="mt-8px text-13px text-#8a7569" style="line-height: 22px;">
         需要先在服务端配置对应平台的 AppId / Secret。
       </view>
     </view>
     <!-- #endif -->
 
-    <view v-if="redirectPath" class="mt-18px text-center text-13px text-#8a7569 leading-1.7">
+    <view class="mt-18px rounded-18px bg-white/80 px-16px py-14px shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+      <view class="text-center text-12px text-#8a7569" style="line-height: 20px;">
+        登录即表示你已阅读并同意以下说明
+      </view>
+      <view class="mt-10px flex items-center justify-center gap-12px text-13px text-#ff7b4a">
+        <view class="active:opacity-70" @tap="openLegalPage(APP_LEGAL_PAGES.agreement)">
+          用户协议
+        </view>
+        <view class="h-10px w-1px bg-#fed7aa" />
+        <view class="active:opacity-70" @tap="openLegalPage(APP_LEGAL_PAGES.privacy)">
+          隐私政策
+        </view>
+      </view>
+    </view>
+
+    <view v-if="redirectPath" class="mt-18px text-center text-13px text-#8a7569" style="line-height: 22px;">
       登录成功后将返回原页面
     </view>
-    <view v-else class="mt-18px text-center text-13px text-#8a7569 leading-1.7">
+    <view v-else class="mt-18px text-center text-13px text-#8a7569" style="line-height: 22px;">
       登录成功后将进入“我的”页面
     </view>
   </view>

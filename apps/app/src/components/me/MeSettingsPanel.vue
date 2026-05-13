@@ -19,6 +19,8 @@ const emit = defineEmits<{
   clearCache: []
   selectMapApp: [value: NavigationMapApp]
   showAbout: []
+  showAgreement: []
+  showPrivacy: []
   logout: []
 }>()
 </script>
@@ -90,6 +92,22 @@ const emit = defineEmits<{
       <view class="flex items-center gap-3">
         <view class="i-carbon-information text-18px text-gray-500" />
         <text class="text-15px text-gray-700">关于</text>
+      </view>
+      <view class="i-carbon-chevron-right text-16px text-gray-300" />
+    </view>
+
+    <view class="flex items-center justify-between border-b border-#f5f5f5 py-16px active:opacity-70" @click="emit('showAgreement')">
+      <view class="flex items-center gap-3">
+        <view class="i-carbon-document text-18px text-gray-500" />
+        <text class="text-15px text-gray-700">用户协议</text>
+      </view>
+      <view class="i-carbon-chevron-right text-16px text-gray-300" />
+    </view>
+
+    <view class="flex items-center justify-between border-b border-#f5f5f5 py-16px active:opacity-70" @click="emit('showPrivacy')">
+      <view class="flex items-center gap-3">
+        <view class="i-carbon-security text-18px text-gray-500" />
+        <text class="text-15px text-gray-700">隐私政策</text>
       </view>
       <view class="i-carbon-chevron-right text-16px text-gray-300" />
     </view>

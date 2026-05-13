@@ -25,6 +25,7 @@ import UnoCSS from 'unocss/vite'
 import AutoImport from 'unplugin-auto-import/vite'
 import { defineConfig, loadEnv } from 'vite'
 import ViteRestart from 'vite-plugin-restart'
+import appPackageJson from './package.json'
 import openDevTools from './scripts/open-dev-tools'
 import { createCopyNativeResourcesPlugin } from './vite-plugins/copy-native-resources'
 import syncManifestPlugin from './vite-plugins/sync-manifest-plugins'
@@ -166,6 +167,8 @@ export default defineConfig(({ command, mode }) => {
       SKIP_OPEN_DEVTOOLS !== 'true' && openDevTools({ mode }),
     ],
     define: {
+      __APP_BUILD_DATE__: JSON.stringify(dayjs().format('YYYY-MM-DD')),
+      __APP_VERSION__: JSON.stringify(appPackageJson.version),
       __VITE_APP_PROXY__: JSON.stringify(VITE_APP_PROXY_ENABLE),
     },
     css: {
