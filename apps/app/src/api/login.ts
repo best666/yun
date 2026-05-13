@@ -52,7 +52,7 @@ export function logout() {
  * 修改用户信息
  */
 export function updateInfo(data: IUpdateInfo) {
-  return http.post('/api/user/updateInfo', data)
+  return http.post<IUserInfoRes>('/api/user/updateInfo', data)
 }
 
 /**

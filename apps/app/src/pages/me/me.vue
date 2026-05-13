@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import type { FavoriteSpotSummary, ISpotInteractionNotificationItem } from '@/api/types/spot'
+import UCropper from 'uview-plus/components/u-cropper/u-cropper.vue'
 import MeBottomSheet from '@/components/me/MeBottomSheet.vue'
 import MeMenuPanel from '@/components/me/MeMenuPanel.vue'
 import MeProfileDialog from '@/components/me/MeProfileDialog.vue'
@@ -10,10 +11,14 @@ import MeSectionCard from '@/components/me/MeSectionCard.vue'
 import MeSettingsPanel from '@/components/me/MeSettingsPanel.vue'
 import MeSpotSummaryItem from '@/components/me/MeSpotSummaryItem.vue'
 import { APP_LEGAL_PAGES } from '@/config/appMeta'
+import { AVATAR_TARGET_DIMENSION, resolveAvatarUploadTip } from '@/config/avatarPolicy'
+import { DEFAULT_USER_SIGNATURE, GUEST_USER_INFO } from '@/config/userProfile'
 import { useFavoriteStore, useFootprintStore, useMapSettingStore, useTokenStore, useUserContentStore, useUserStore } from '@/store'
 import { buildSpotDetailUrlFromFavorite } from '@/utils/spotDetail'
 import { fetchAndCacheSpotDetail } from '@/utils/spotDetailCache'
 import { toLoginPage } from '@/utils/toLoginPage'
+import { uploadFileUrl } from '@/utils/uploadFile'
+import { parseUploadErrorMessage, parseUploadResponseData } from '@/utils/uploadShared'
 
 interface FootprintSpotSummary extends FavoriteSpotSummary {
   viewedAt: string
@@ -30,11 +35,10 @@ type NavigationMapApp = 'ask' | 'system' | 'tencent' | 'amap'
 type ExpandableAction = 'favorites' | 'footprint' | 'reviews' | 'review-replies' | 'notifications'
 type MenuAction = ExpandableAction | 'settings'
 
-const GUEST_USER_INFO = {
-  nickname: '美食探索者',
-  avatar: 'https://placehold.co/120/ff6633/white?text=Me',
-  desc: '吃遍天下美食',
+interface AvatarCropperRef {
+  chooseImage?: (index?: number, params?: Record<string, string | boolean | number>) => void
 }
+
 const EXPANDABLE_ACTIONS: ExpandableAction[] = ['favorites', 'footprint', 'reviews', 'review-replies', 'notifications']
 const NOTIFICATION_GROUP_META_MAP: Record<string, { title: string, icon: string }> = {
   discussion_like: { title: '点赞我的讨论', icon: 'i-carbon-thumbs-up' },
@@ -52,6 +56,15 @@ const NAVIGATION_MAP_OPTIONS = [
   { label: '高德地图', value: 'amap' },
 ] as const
 const SHEET_CLOSE_DURATION_MS = 280
+const AVATAR_CROPPER_OPTIONS = {
+  areaWidth: '520rpx',
+  areaHeight: '520rpx',
+  exportWidth: String(AVATAR_TARGET_DIMENSION),
+  exportHeight: String(AVATAR_TARGET_DIMENSION),
+  quality: '0.9',
+  canRotate: true,
+  canScale: true,
+} as const
 const MENU_ACTIONS = [...EXPANDABLE_ACTIONS, 'settings'] as const satisfies readonly MenuAction[]
 const PANEL_META_MAP: Record<MenuAction, { title: string, description: string }> = {
   'favorites': { title: '我的收藏', description: '集中查看收藏过的地点，快速跳回详情或取消收藏。' },
@@ -83,28 +96,124 @@ const mapSettingStore = useMapSettingStore()
 const footprintSpots = ref<FootprintSpotSummary[]>([])
 const isLoadingFootprints = ref(false)
 const showEditProfile = ref(false)
+const isSavingProfile = ref(false)
 const sheetAction = ref<MenuAction | ''>('')
 const sheetVisible = ref(false)
+const avatarCropperRef = ref<AvatarCropperRef | null>(null)
+const avatarTipMessage = ref(resolveAvatarUploadTip())
+const avatarTipTone = ref<'default' | 'error' | 'success'>('default')
+const isUploadingAvatar = ref(false)
+const pendingAvatarFilePath = ref('')
 const editForm = reactive({
+  avatar: '',
   nickname: '',
   desc: '',
 })
 
+const isProfileBusy = computed(() => isSavingProfile.value || isUploadingAvatar.value)
+
 let closeSheetTimer: ReturnType<typeof setTimeout> | null = null
 
 const hasLogin = computed(() => tokenStore.updateNowTime().hasLogin)
+function avatarUploadHeaders() {
+  const validToken = tokenStore.updateNowTime().validToken
+  return validToken
+    ? { Authorization: `Bearer ${validToken}` }
+    : {}
+}
+
+async function compressAvatarImage(filePath: string) {
+  try {
+    const compressedResult = await uni.compressImage({
+      src: filePath,
+      quality: 80,
+      compressedWidth: AVATAR_TARGET_DIMENSION,
+      compressedHeight: AVATAR_TARGET_DIMENSION,
+    })
+
+    return compressedResult.tempFilePath || filePath
+  }
+  catch (error) {
+    console.warn('压缩头像失败，回退使用裁剪结果', error)
+    return filePath
+  }
+}
+
+async function handleAvatarCropConfirm(event: { path?: string }) {
+  const croppedFilePath = event.path || ''
+  if (!croppedFilePath) {
+    avatarTipTone.value = 'error'
+    avatarTipMessage.value = '裁剪结果未生成，请重新选择图片。'
+    uni.showToast({ title: '裁剪结果异常', icon: 'none' })
+    return
+  }
+
+  avatarTipTone.value = 'default'
+  avatarTipMessage.value = '裁剪已确认，正在压缩图片并回到编辑页。'
+  const compressedFilePath = await compressAvatarImage(croppedFilePath)
+  pendingAvatarFilePath.value = compressedFilePath
+  editForm.avatar = compressedFilePath
+  avatarTipTone.value = 'success'
+  avatarTipMessage.value = '头像裁剪完成，点击保存后才会正式上传。'
+}
+
+async function uploadPendingAvatar(filePath: string) {
+  isUploadingAvatar.value = true
+  try {
+    avatarTipTone.value = 'default'
+    avatarTipMessage.value = '正在上传头像，请稍候。'
+
+    const uploadResult = await new Promise<UniApp.UploadFileSuccessCallbackResult>((resolve, reject) => {
+      uni.uploadFile({
+        url: uploadFileUrl.USER_AVATAR,
+        filePath,
+        name: 'file',
+        header: {
+          // #ifndef H5
+          'Content-Type': 'multipart/form-data',
+          // #endif
+          ...avatarUploadHeaders(),
+        },
+        success: resolve,
+        fail: reject,
+      })
+    })
+
+    if (uploadResult.statusCode < 200 || uploadResult.statusCode >= 300) {
+      throw new Error(parseUploadErrorMessage(uploadResult.data, '上传头像失败'))
+    }
+
+    const parsedResult = parseUploadResponseData<{ url?: string }>(uploadResult.data)
+    const uploadedAvatarUrl = typeof parsedResult.url === 'string' ? parsedResult.url : ''
+
+    if (!uploadedAvatarUrl) {
+      throw new Error('头像上传结果异常')
+    }
+
+    pendingAvatarFilePath.value = ''
+    return uploadedAvatarUrl
+  }
+  catch (error) {
+    console.error('上传头像失败', error)
+    const resolvedMessage = error instanceof Error ? error.message : '上传头像失败'
+    avatarTipTone.value = 'error'
+    avatarTipMessage.value = resolveAvatarUploadTip(resolvedMessage)
+    throw error instanceof Error ? error : new Error(resolvedMessage)
+  }
+  finally {
+    isUploadingAvatar.value = false
+  }
+}
+
 const displayUserInfo = computed(() => {
   if (!hasLogin.value) {
     return GUEST_USER_INFO
   }
 
-  const phone = authUserStore.userInfo.phone
-  const desc = phone ? `已绑定手机号 ${phone.slice(0, 3)}****${phone.slice(-4)}` : '登录后可同步收藏与足迹'
-
   return {
     nickname: authUserStore.userInfo.nickname || authUserStore.userInfo.username || GUEST_USER_INFO.nickname,
     avatar: authUserStore.userInfo.avatar || GUEST_USER_INFO.avatar,
-    desc,
+    desc: authUserStore.userInfo.signature || DEFAULT_USER_SIGNATURE,
   }
 })
 
@@ -219,23 +328,67 @@ function openEditProfile() {
     return
   }
 
+  editForm.avatar = displayUserInfo.value.avatar
   editForm.nickname = displayUserInfo.value.nickname
   editForm.desc = displayUserInfo.value.desc
+  pendingAvatarFilePath.value = ''
+  avatarTipTone.value = 'default'
+  avatarTipMessage.value = '点击头像选择图片，确认裁剪后回到编辑页，保存时才会上传。'
   showEditProfile.value = true
 }
 
-function saveProfile() {
-  if (!editForm.nickname.trim()) {
-    uni.showToast({ title: '昵称不能为空', icon: 'none' })
+async function saveProfile() {
+  if (isUploadingAvatar.value) {
+    uni.showToast({ title: '头像上传中，请稍候', icon: 'none' })
     return
   }
 
-  authUserStore.setUserInfo({
-    ...authUserStore.userInfo,
-    nickname: editForm.nickname.trim(),
-  })
+  isSavingProfile.value = true
+
+  try {
+    let avatar = editForm.avatar
+
+    if (pendingAvatarFilePath.value) {
+      avatar = await uploadPendingAvatar(pendingAvatarFilePath.value)
+      editForm.avatar = avatar
+    }
+
+    await authUserStore.updateProfile({
+      avatar,
+      nickname: editForm.nickname.trim(),
+      signature: editForm.desc.trim(),
+    })
+    avatarTipTone.value = 'success'
+    avatarTipMessage.value = '资料已保存成功。'
+    showEditProfile.value = false
+    uni.showToast({ title: '资料已更新', icon: 'success' })
+  }
+  catch (error) {
+    console.error('更新个人资料失败', error)
+    uni.showToast({ title: '更新失败，请重试', icon: 'none' })
+  }
+  finally {
+    isSavingProfile.value = false
+  }
+}
+
+function changeAvatar() {
+  if (isUploadingAvatar.value || isProfileBusy.value) {
+    return
+  }
+
+  avatarTipTone.value = 'default'
+  avatarTipMessage.value = '已选择更换头像，下一步将进入裁剪。'
+  avatarCropperRef.value?.chooseImage?.(0, AVATAR_CROPPER_OPTIONS)
+}
+
+function closeEditProfile() {
+  if (isUploadingAvatar.value || isProfileBusy.value) {
+    uni.showToast({ title: '资料处理中，请稍候', icon: 'none' })
+    return
+  }
+
   showEditProfile.value = false
-  uni.showToast({ title: '修改成功', icon: 'success' })
 }
 
 function handleLoginOrProfile() {
@@ -618,12 +771,36 @@ function setNavigationMapApp(mapApp: NavigationMapApp) {
 
     <MeProfileDialog
       :visible="showEditProfile"
+      :avatar="editForm.avatar"
       :nickname="editForm.nickname"
       :desc="editForm.desc"
-      @close="showEditProfile = false"
+      :avatar-tip="avatarTipMessage"
+      :avatar-tip-tone="avatarTipTone"
+      :uploading-avatar="isUploadingAvatar"
+      :saving="isProfileBusy"
+      @close="closeEditProfile"
+      @change-avatar="changeAvatar"
       @save="saveProfile"
       @nickname-change="editForm.nickname = $event"
       @desc-change="editForm.desc = $event"
     />
+
+    <UCropper
+      ref="avatarCropperRef"
+      quality="0.9"
+      @confirm="handleAvatarCropConfirm"
+    >
+      <view class="hidden h-0 w-0 overflow-hidden" />
+    </UCropper>
   </view>
 </template>
+
+<style scoped>
+:deep(.u-cropper .btn-wrapper > view:nth-child(4)) {
+  display: none !important;
+}
+
+:deep(.u-cropper .clr-wrapper) {
+  display: none !important;
+}
+</style>

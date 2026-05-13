@@ -1,6 +1,7 @@
 import type { Spot, SpotDiscussion, SpotExternalSource, SpotInteractionNotification, SpotNote, SpotQuestion, SpotQuestionAnswer, SpotReview, SpotReviewReply } from '@prisma/client';
 import { ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
+import { normalizeUserAvatar, normalizeUserNickname } from '@/user/user-profile.util';
 import { CreateSpotDiscussionDto } from './dto/create-spot-discussion.dto';
 import { CreateSpotReviewDto } from './dto/create-spot-review.dto';
 import { CreateSpotReviewReplyDto } from './dto/create-spot-review-reply.dto';
@@ -190,6 +191,33 @@ interface SeedSpot {
   questions: Array<Omit<SpotQuestionItem, 'isMine'>>;
 }
 
+interface SeedIdentity {
+  userName: string;
+  avatar: string;
+}
+
+function createSeedIdentity(suffix: string, color: string): SeedIdentity {
+  return {
+    userName: `云游之${suffix}`,
+    avatar: `https://placehold.co/80/${color}/white?text=YY${suffix}`,
+  };
+}
+
+const SEED_IDENTITIES = {
+  y101: createSeedIdentity('101', 'ff6633'),
+  y102: createSeedIdentity('102', '2a9d8f'),
+  y103: createSeedIdentity('103', '1d3557'),
+  y104: createSeedIdentity('104', 'e63946'),
+  y105: createSeedIdentity('105', '457b9d'),
+  y106: createSeedIdentity('106', 'f4a261'),
+  y107: createSeedIdentity('107', 'f28482'),
+  y108: createSeedIdentity('108', '8ecae6'),
+  y109: createSeedIdentity('109', '14b8a6'),
+  y110: createSeedIdentity('110', '4f46e5'),
+  y111: createSeedIdentity('111', '6366f1'),
+  y112: createSeedIdentity('112', '0ea5e9'),
+} as const;
+
 const DEFAULT_SPOTS: SeedSpot[] = [
   {
     name: '老王烧烤',
@@ -215,8 +243,7 @@ const DEFAULT_SPOTS: SeedSpot[] = [
     reviews: [
       {
         id: 'seed-r-1',
-        userName: '美食达人小李',
-        avatar: 'https://placehold.co/80/ff6633/white?text=Li',
+        ...SEED_IDENTITIES.y101,
         rating: 5,
         content: '羊肉串和烤鱼都很稳，炭火香特别明显，朋友聚餐氛围很好。',
         images: ['https://placehold.co/200x200/ff6633/white?text=BBQ+Review'],
@@ -225,8 +252,7 @@ const DEFAULT_SPOTS: SeedSpot[] = [
       },
       {
         id: 'seed-r-2',
-        userName: '周末探店',
-        avatar: 'https://placehold.co/80/2a9d8f/white?text=Z',
+        ...SEED_IDENTITIES.y102,
         rating: 4,
         content: '排队会久一点，但出品稳定，适合晚上和朋友一起来。',
         images: [],
@@ -237,8 +263,7 @@ const DEFAULT_SPOTS: SeedSpot[] = [
     discussions: [
       {
         id: 'seed-d-1',
-        userName: '夜宵观察员',
-        avatar: 'https://placehold.co/80/1d3557/white?text=Y',
+        ...SEED_IDENTITIES.y103,
         content: '22:00 后人最多，建议提前占位，烤鱼和五花肉几乎桌桌必点。',
         time: '2026-05-09',
         likeCount: 72,
@@ -251,8 +276,7 @@ const DEFAULT_SPOTS: SeedSpot[] = [
         title: '老街夜宵不踩雷攻略',
         content: '适合晚上和朋友一起去，推荐先点羊肉串和烤鱼，22 点后人会明显变多，最好提前到。',
         cover: 'https://placehold.co/400x300/ff6633/white?text=Note+1',
-        userName: '深夜觅食者',
-        avatar: 'https://placehold.co/80/ff6633/white?text=S',
+        ...SEED_IDENTITIES.y101,
         likeCount: 38,
         time: '2026-05-06',
       },
@@ -261,15 +285,14 @@ const DEFAULT_SPOTS: SeedSpot[] = [
       {
         id: 'seed-q-1',
         question: '晚上 10 点后还需要排队吗？',
-        asker: '周末探店',
-        askerAvatar: 'https://placehold.co/80/2a9d8f/white?text=Z',
+        asker: SEED_IDENTITIES.y102.userName,
+        askerAvatar: SEED_IDENTITIES.y102.avatar,
         time: '2026-05-07',
         answers: [
           {
             id: 'seed-qa-1',
             content: '22 点左右人会更多，建议 9 点半前到或者先线上排位。',
-            userName: '夜宵观察员',
-            avatar: 'https://placehold.co/80/1d3557/white?text=Y',
+            ...SEED_IDENTITIES.y103,
             time: '2026-05-07',
             isMine: false,
           },
@@ -300,8 +323,7 @@ const DEFAULT_SPOTS: SeedSpot[] = [
     reviews: [
       {
         id: 'seed-r-3',
-        userName: '辣味爱好者',
-        avatar: 'https://placehold.co/80/e63946/white?text=L',
+        ...SEED_IDENTITIES.y104,
         rating: 5,
         content: '毛血旺很到位，香辣但不呛，服务效率也不错。',
         images: [],
@@ -312,8 +334,7 @@ const DEFAULT_SPOTS: SeedSpot[] = [
     discussions: [
       {
         id: 'seed-d-2',
-        userName: '周边上班族',
-        avatar: 'https://placehold.co/80/457b9d/white?text=B',
+        ...SEED_IDENTITIES.y105,
         content: '午市套餐性价比更高，工作日中午会比晚餐轻松很多。',
         time: '2026-05-02',
         likeCount: 18,
@@ -325,15 +346,14 @@ const DEFAULT_SPOTS: SeedSpot[] = [
       {
         id: 'seed-q-2',
         question: '不太能吃辣的话推荐点什么？',
-        asker: '清淡党',
-        askerAvatar: 'https://placehold.co/80/8ecae6/white?text=Q',
+        asker: SEED_IDENTITIES.y108.userName,
+        askerAvatar: SEED_IDENTITIES.y108.avatar,
         time: '2026-05-04',
         answers: [
           {
             id: 'seed-qa-2',
             content: '可以点小炒黄牛肉和菌汤，辣度都能调。',
-            userName: '周边上班族',
-            avatar: 'https://placehold.co/80/457b9d/white?text=B',
+            ...SEED_IDENTITIES.y105,
             time: '2026-05-04',
             isMine: false,
           },
@@ -364,8 +384,7 @@ const DEFAULT_SPOTS: SeedSpot[] = [
     reviews: [
       {
         id: 'seed-r-4',
-        userName: '拉面控',
-        avatar: 'https://placehold.co/80/457b9d/white?text=R',
+        ...SEED_IDENTITIES.y105,
         rating: 4,
         content: '汤底浓郁，面条筋道，叉烧的火候也合适。',
         images: [],
@@ -376,8 +395,7 @@ const DEFAULT_SPOTS: SeedSpot[] = [
     discussions: [
       {
         id: 'seed-d-3',
-        userName: '冬日食记',
-        avatar: 'https://placehold.co/80/2a9d8f/white?text=D',
+        ...SEED_IDENTITIES.y102,
         content: '工作日晚上 7 点后排队会少很多，想安静吃饭可以错峰。',
         time: '2026-04-29',
         likeCount: 22,
@@ -410,8 +428,7 @@ const DEFAULT_SPOTS: SeedSpot[] = [
     reviews: [
       {
         id: 'seed-r-5',
-        userName: '甜品控小花',
-        avatar: 'https://placehold.co/80/f4a261/white?text=H',
+        ...SEED_IDENTITIES.y106,
         rating: 5,
         content: '甜品颜值高而且不齁，适合约会和闺蜜拍照。',
         images: ['https://placehold.co/200x200/f4a261/white?text=Dessert+Review'],
@@ -422,8 +439,7 @@ const DEFAULT_SPOTS: SeedSpot[] = [
     discussions: [
       {
         id: 'seed-d-4',
-        userName: '拍照路线研究员',
-        avatar: 'https://placehold.co/80/f28482/white?text=P',
+        ...SEED_IDENTITIES.y107,
         content: '下午 4 点左右自然光最好，靠窗位比二层更适合拍照。',
         time: '2026-05-04',
         likeCount: 59,
@@ -436,8 +452,7 @@ const DEFAULT_SPOTS: SeedSpot[] = [
         title: '下午茶拍照位记录',
         content: '靠窗位置更适合拍甜品，建议工作日下午 4 点左右去，光线最稳定。',
         cover: 'https://placehold.co/400x300/f4a261/white?text=Note+2',
-        userName: '甜点记录员',
-        avatar: 'https://placehold.co/80/f4a261/white?text=T',
+        ...SEED_IDENTITIES.y106,
         likeCount: 27,
         time: '2026-05-08',
       },
@@ -446,15 +461,14 @@ const DEFAULT_SPOTS: SeedSpot[] = [
       {
         id: 'seed-q-3',
         question: '周末几点去拍照比较好？',
-        asker: '拍照研究员',
-        askerAvatar: 'https://placehold.co/80/f28482/white?text=P',
+        asker: SEED_IDENTITIES.y107.userName,
+        askerAvatar: SEED_IDENTITIES.y107.avatar,
         time: '2026-05-08',
         answers: [
           {
             id: 'seed-qa-3',
             content: '下午四点到五点的自然光最好，靠窗位更出片。',
-            userName: '甜点记录员',
-            avatar: 'https://placehold.co/80/f4a261/white?text=T',
+            ...SEED_IDENTITIES.y106,
             time: '2026-05-08',
             isMine: false,
           },
@@ -485,8 +499,7 @@ const DEFAULT_SPOTS: SeedSpot[] = [
     reviews: [
       {
         id: 'seed-r-6',
-        userName: '早茶达人',
-        avatar: 'https://placehold.co/80/2a9d8f/white?text=Z',
+        ...SEED_IDENTITIES.y102,
         rating: 5,
         content: '虾饺和叉烧包都很稳，长辈也会喜欢。',
         images: [],
@@ -497,8 +510,7 @@ const DEFAULT_SPOTS: SeedSpot[] = [
     discussions: [
       {
         id: 'seed-d-5',
-        userName: '周末带娃家长',
-        avatar: 'https://placehold.co/80/8ecae6/white?text=W',
+        ...SEED_IDENTITIES.y108,
         content: '早上 9 点前到基本不用等位，带老人孩子会舒服很多。',
         time: '2026-05-08',
         likeCount: 41,
@@ -726,8 +738,8 @@ export class SpotService implements OnModuleInit {
       data: {
         spotId: dto.spotId,
         userId,
-        userName: user.nickname || user.username || user.phone || `用户${user.id}`,
-        avatar: user.avatar || '/static/images/default-avatar.png',
+        userName: this.resolveDisplayUserName(user),
+        avatar: this.resolveDisplayAvatar(user.avatar),
         content: dto.content.trim(),
         rating: dto.rating,
         images: JSON.stringify((dto.images || []).filter(Boolean)),
@@ -739,7 +751,7 @@ export class SpotService implements OnModuleInit {
     await this.refreshSpotRating(dto.spotId);
     await this.notifyFavoriteFollowersOnSpotUpdate({
       actorUserId: userId,
-      actorName: user.nickname || user.username || user.phone || `用户${user.id}`,
+      actorName: this.resolveDisplayUserName(user),
       spotId: spot.id,
       spotName: spot.name,
       type: 'favorite_spot_new_review',
@@ -766,8 +778,8 @@ export class SpotService implements OnModuleInit {
       data: {
         reviewId: dto.reviewId,
         userId,
-        userName: user.nickname || user.username || user.phone || `用户${user.id}`,
-        avatar: user.avatar || '/static/images/default-avatar.png',
+        userName: this.resolveDisplayUserName(user),
+        avatar: this.resolveDisplayAvatar(user.avatar),
         content: dto.content.trim(),
       },
     });
@@ -853,15 +865,15 @@ export class SpotService implements OnModuleInit {
       data: {
         spotId: dto.spotId,
         userId,
-        userName: user.nickname || user.username || user.phone || `用户${user.id}`,
-        avatar: user.avatar || '/static/images/default-avatar.png',
+        userName: this.resolveDisplayUserName(user),
+        avatar: this.resolveDisplayAvatar(user.avatar),
         content: dto.content.trim(),
       },
     });
 
     await this.notifyFavoriteFollowersOnSpotUpdate({
       actorUserId: userId,
-      actorName: user.nickname || user.username || user.phone || `用户${user.id}`,
+      actorName: this.resolveDisplayUserName(user),
       spotId: spot.id,
       spotName: spot.name,
       type: 'favorite_spot_new_discussion',
@@ -1150,8 +1162,7 @@ export class SpotService implements OnModuleInit {
         reviews: {
           create: [
             {
-              userName: '附近食客',
-              avatar: 'https://placehold.co/80/4f46e5/white?text=F',
+              ...SEED_IDENTITIES.y110,
               content: `${query.title!.trim()}位置好找，${distanceText}左右可到，适合临时起意来吃一顿。`,
               rating: 5,
               images: JSON.stringify([]),
@@ -1159,16 +1170,14 @@ export class SpotService implements OnModuleInit {
               replies: {
                 create: [
                   {
-                    userName: '路线分享者',
-                    avatar: 'https://placehold.co/80/6366f1/white?text=R',
+                    ...SEED_IDENTITIES.y111,
                     content: '我晚饭点过去过一次，门口挺好找，进店速度也还可以。',
                   },
                 ],
               },
             },
             {
-              userName: '路过打卡',
-              avatar: 'https://placehold.co/80/0ea5e9/white?text=D',
+              ...SEED_IDENTITIES.y112,
               content: `${query.category || '地图地点'}氛围不错，地址就在${query.address || '附近'}，第一次来也比较容易找到。`,
               rating: 4,
               images: JSON.stringify([]),
@@ -1179,14 +1188,12 @@ export class SpotService implements OnModuleInit {
         discussions: {
           create: [
             {
-              userName: '路线分享者',
-              avatar: 'https://placehold.co/80/6366f1/white?text=R',
+              ...SEED_IDENTITIES.y111,
               content: `从当前位置导航过去比较顺，${distanceText}内通常能到。`,
               likeCount: 14,
             },
             {
-              userName: '周边探店',
-              avatar: 'https://placehold.co/80/14b8a6/white?text=T',
+              ...SEED_IDENTITIES.y109,
               content: `${query.district || '附近区域'}同类店不少，这家更适合想先看位置再决定的人。`,
               likeCount: 9,
             },
@@ -1195,14 +1202,12 @@ export class SpotService implements OnModuleInit {
         questions: {
           create: [
             {
-              userName: '附近食客',
-              avatar: 'https://placehold.co/80/4f46e5/white?text=F',
+              ...SEED_IDENTITIES.y110,
               question: `${query.title!.trim()}晚上高峰期大概需要等多久？`,
               answers: {
                 create: [
                   {
-                    userName: '路线分享者',
-                    avatar: 'https://placehold.co/80/6366f1/white?text=R',
+                    ...SEED_IDENTITIES.y111,
                     content: '一般饭点会稍微排队，建议先导航过来再看现场情况。',
                   },
                 ],
@@ -1505,9 +1510,24 @@ export class SpotService implements OnModuleInit {
       spotName: notification.spot?.name || undefined,
       targetType: notification.targetType || undefined,
       targetId: notification.targetId || undefined,
-      actorName: notification.actorUser?.nickname || notification.actorUser?.username || notification.actorUser?.phone || '互动用户',
-      actorAvatar: notification.actorUser?.avatar || '/static/images/default-avatar.png',
+      actorName: this.resolveDisplayUserName(notification.actorUser || {}),
+      actorAvatar: this.resolveDisplayAvatar(notification.actorUser?.avatar),
     };
+  }
+
+  private resolveDisplayUserName(user: { id?: number | null; nickname?: string | null; username?: string | null; phone?: string | null; openid?: string | null; wechatOpenId?: string | null; douyinOpenId?: string | null }) {
+    return normalizeUserNickname(user.nickname, {
+      userId: user.id,
+      username: user.username,
+      phone: user.phone,
+      openid: user.openid,
+      wechatOpenId: user.wechatOpenId,
+      douyinOpenId: user.douyinOpenId,
+    });
+  }
+
+  private resolveDisplayAvatar(avatar?: string | null) {
+    return normalizeUserAvatar(avatar);
   }
 
   /** 统一写入互动提醒，集中处理空接收者、自我互动和文案边界，减少业务方法重复判断。 */

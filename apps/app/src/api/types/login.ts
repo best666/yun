@@ -31,6 +31,7 @@ export interface IUserInfoRes {
   username: string
   nickname: string
   avatar?: string
+  signature?: string
   phone?: string
   gender?: number
   /** 同时支持单角色和多角色，你自行选择一种就行 */
@@ -80,6 +81,7 @@ export interface IUploadSuccessInfo {
 export interface IUpdateInfo {
   nickname?: string
   avatar?: string
+  signature?: string
   gender?: number
 }
 /**

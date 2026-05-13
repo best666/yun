@@ -3,6 +3,7 @@ import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@/prisma/prisma.service';
+import { DEFAULT_USER_AVATAR, DEFAULT_USER_SIGNATURE, normalizeUserNickname } from '@/user/user-profile.util';
 
 export type OauthProvider = 'wechat' | 'douyin';
 
@@ -325,7 +326,9 @@ export class AuthService {
       data: {
         phone,
         username: phone,
-        nickname: `手机用户${phone.slice(-4)}`,
+        nickname: normalizeUserNickname(undefined, { phone, username: phone }),
+        avatar: DEFAULT_USER_AVATAR,
+        signature: DEFAULT_USER_SIGNATURE,
         lastLoginAt: new Date(),
       },
     });
@@ -338,7 +341,15 @@ export class AuthService {
     });
 
     if (existingUser) {
-      return this.touchUserLogin(existingUser.id);
+      return this.prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          nickname: existingUser.nickname || normalizeUserNickname(undefined, existingUser),
+          avatar: existingUser.avatar || DEFAULT_USER_AVATAR,
+          signature: existingUser.signature || DEFAULT_USER_SIGNATURE,
+          lastLoginAt: new Date(),
+        },
+      });
     }
 
     return this.prisma.user.create({
@@ -346,7 +357,9 @@ export class AuthService {
         openid: openId,
         unionId,
         username: `wxmp_${openId.slice(-10)}`,
-        nickname: `微信用户${openId.slice(-4)}`,
+        nickname: normalizeUserNickname(undefined, { openid: openId, username: `wxmp_${openId.slice(-10)}` }),
+        avatar: DEFAULT_USER_AVATAR,
+        signature: DEFAULT_USER_SIGNATURE,
         lastLoginAt: new Date(),
       },
     });
@@ -362,8 +375,9 @@ export class AuthService {
         where: { id: existingUser.id },
         data: {
           unionId: data.unionId || existingUser.unionId,
-          nickname: data.nickname || existingUser.nickname,
-          avatar: data.avatar || existingUser.avatar,
+          nickname: existingUser.nickname || normalizeUserNickname(undefined, existingUser),
+          avatar: existingUser.avatar || data.avatar || DEFAULT_USER_AVATAR,
+          signature: existingUser.signature || DEFAULT_USER_SIGNATURE,
           lastLoginAt: new Date(),
         },
       });
@@ -374,8 +388,9 @@ export class AuthService {
         wechatOpenId: data.openId,
         unionId: data.unionId,
         username: `wechat_${data.openId.slice(-10)}`,
-        nickname: data.nickname || `微信用户${data.openId.slice(-4)}`,
-        avatar: data.avatar,
+        nickname: normalizeUserNickname(undefined, { wechatOpenId: data.openId, username: `wechat_${data.openId.slice(-10)}` }),
+        avatar: data.avatar || DEFAULT_USER_AVATAR,
+        signature: DEFAULT_USER_SIGNATURE,
         lastLoginAt: new Date(),
       },
     });
@@ -391,8 +406,9 @@ export class AuthService {
         where: { id: existingUser.id },
         data: {
           unionId: data.unionId || existingUser.unionId,
-          nickname: data.nickname || existingUser.nickname,
-          avatar: data.avatar || existingUser.avatar,
+          nickname: existingUser.nickname || normalizeUserNickname(undefined, existingUser),
+          avatar: existingUser.avatar || data.avatar || DEFAULT_USER_AVATAR,
+          signature: existingUser.signature || DEFAULT_USER_SIGNATURE,
           lastLoginAt: new Date(),
         },
       });
@@ -403,8 +419,9 @@ export class AuthService {
         douyinOpenId: data.openId,
         unionId: data.unionId,
         username: `douyin_${data.openId.slice(-10)}`,
-        nickname: data.nickname || `抖音用户${data.openId.slice(-4)}`,
-        avatar: data.avatar,
+        nickname: normalizeUserNickname(undefined, { douyinOpenId: data.openId, username: `douyin_${data.openId.slice(-10)}` }),
+        avatar: data.avatar || DEFAULT_USER_AVATAR,
+        signature: DEFAULT_USER_SIGNATURE,
         lastLoginAt: new Date(),
       },
     });

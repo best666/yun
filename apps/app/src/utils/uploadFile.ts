@@ -1,4 +1,5 @@
-import { normalizeUploadError, parseUploadResponseData } from '@/utils/uploadShared'
+import { getEnvBaseUrl } from '@/utils'
+import { normalizeUploadError, parseUploadErrorMessage, parseUploadResponseData } from '@/utils/uploadShared'
 
 /**
  * 文件上传钩子函数使用示例
@@ -21,7 +22,7 @@ import { normalizeUploadError, parseUploadResponseData } from '@/utils/uploadSha
  */
 export const uploadFileUrl = {
   /** 用户头像上传地址 */
-  USER_AVATAR: `${import.meta.env.VITE_SERVER_BASEURL}/user/avatar`,
+  USER_AVATAR: `${getEnvBaseUrl()}/api/user/avatar`,
 }
 
 /**
@@ -61,6 +62,8 @@ export interface UploadOptions {
   onError?: (err: Error | UniApp.GeneralCallbackResult) => void
   /** 上传完成回调函数（无论成功失败） */
   onComplete?: () => void
+  /** 自定义请求头，常用于携带鉴权信息 */
+  headers?: Record<string, string> | (() => Record<string, string>)
 }
 
 /**
@@ -101,6 +104,8 @@ export function useUpload<T = string>(url: string, formData: Record<string, any>
     onError,
     /** 完成回调 */
     onComplete,
+    /** 请求头 */
+    headers,
   } = options
 
   /**
@@ -125,14 +130,16 @@ export function useUpload<T = string>(url: string, formData: Record<string, any>
    * - 微信小程序使用 chooseMedia
    * - 其他平台使用 chooseImage
    */
-  const run = () => {
-    if (directFilePath) {
+  const run = (runtimeFilePath?: string) => {
+    const resolvedFilePath = runtimeFilePath || directFilePath
+
+    if (resolvedFilePath) {
       // 直接使用传入的文件路径
       loading.value = true
       progress.value = 0
       uploadFile<T>({
         url,
-        tempFilePath: directFilePath,
+        tempFilePath: resolvedFilePath,
         formData,
         data,
         error,
@@ -142,6 +149,7 @@ export function useUpload<T = string>(url: string, formData: Record<string, any>
         onSuccess,
         onError,
         onComplete,
+        headers: typeof headers === 'function' ? headers() : headers,
       })
       return
     }
@@ -173,6 +181,7 @@ export function useUpload<T = string>(url: string, formData: Record<string, any>
           onSuccess,
           onError,
           onComplete,
+          headers: typeof headers === 'function' ? headers() : headers,
         })
       },
       fail: (err) => {
@@ -205,6 +214,7 @@ export function useUpload<T = string>(url: string, formData: Record<string, any>
           onSuccess,
           onError,
           onComplete,
+          headers: typeof headers === 'function' ? headers() : headers,
         })
       },
       fail: (err) => {
@@ -246,6 +256,8 @@ interface UploadFileOptions<T> {
   onError?: (err: Error | UniApp.GeneralCallbackResult) => void
   /** 上传完成回调 */
   onComplete?: () => void
+  /** 请求头 */
+  headers?: Record<string, string>
 }
 
 /**
@@ -265,6 +277,7 @@ function uploadFile<T>({
   onSuccess,
   onError,
   onComplete,
+  headers,
 }: UploadFileOptions<T>) {
   try {
     // 创建上传任务
@@ -278,10 +291,18 @@ function uploadFile<T>({
         // #ifndef H5
         'Content-Type': 'multipart/form-data',
         // #endif
+        ...headers,
       },
       // 确保文件名称合法
       success: (uploadFileRes) => {
         try {
+          if (uploadFileRes.statusCode < 200 || uploadFileRes.statusCode >= 300) {
+            const resolvedError = new Error(parseUploadErrorMessage(uploadFileRes.data, '上传失败'))
+            error.value = resolvedError
+            onError?.(resolvedError)
+            return
+          }
+
           const parsedData = parseUploadResponseData<T>(uploadFileRes.data)
           // 上传成功
           data.value = parsedData

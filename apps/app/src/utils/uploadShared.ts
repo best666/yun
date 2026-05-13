@@ -3,33 +3,64 @@ interface UploadEnvelope<T> {
   data?: T
 }
 
+interface UploadErrorEnvelope {
+  msg?: string
+  message?: string | string[]
+}
+
 /** 兼容上传接口返回的字符串 JSON、对象包裹和原始字符串。 */
 export function parseUploadResponseData<T>(rawData: unknown): T {
+  const parsedData = parseUploadPayload(rawData)
+
+  if (parsedData && typeof parsedData === 'object' && 'data' in parsedData) {
+    return (parsedData as UploadEnvelope<T>).data as T
+  }
+
+  return parsedData as T
+}
+
+export function parseUploadErrorMessage(rawData: unknown, fallback = '上传失败') {
+  const parsedData = parseUploadPayload(rawData)
+
+  if (parsedData && typeof parsedData === 'object') {
+    const { message, msg } = parsedData as UploadErrorEnvelope
+    if (Array.isArray(message)) {
+      return message.filter(Boolean).join('，') || fallback
+    }
+
+    if (typeof message === 'string' && message.trim()) {
+      return message.trim()
+    }
+
+    if (typeof msg === 'string' && msg.trim()) {
+      return msg.trim()
+    }
+  }
+
+  if (typeof parsedData === 'string' && parsedData.trim()) {
+    return parsedData.trim()
+  }
+
+  return fallback
+}
+
+function parseUploadPayload(rawData: unknown): unknown {
   if (typeof rawData === 'string') {
     const trimmedData = rawData.trim()
 
     if (!trimmedData) {
-      return '' as T
+      return ''
     }
 
     try {
-      const parsedData = JSON.parse(trimmedData) as UploadEnvelope<T> | T
-      if (parsedData && typeof parsedData === 'object' && 'data' in parsedData) {
-        return (parsedData as UploadEnvelope<T>).data as T
-      }
-
-      return parsedData as T
+      return JSON.parse(trimmedData)
     }
     catch {
-      return rawData as T
+      return rawData
     }
   }
 
-  if (rawData && typeof rawData === 'object' && 'data' in rawData) {
-    return (rawData as UploadEnvelope<T>).data as T
-  }
-
-  return rawData as T
+  return rawData
 }
 
 /** 把不同来源的异常统一成 Error，便于 hook 层稳定暴露。 */

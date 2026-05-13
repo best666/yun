@@ -68,3 +68,5 @@ export interface ReviewItem {
   images?: string[];
   createdAt: string;
 }
+
+export * from './avatar';

@@ -19,6 +19,7 @@ model User {
   unionId       String?  @map("union_id") @db.VarChar(64)
   nickname      String?  @db.VarChar(50)
   avatar        String?  @db.VarChar(500)
+  signature     String?  @db.VarChar(100)
   phone         String?  @unique @db.VarChar(20)
   gender        Int      @default(0) /// 0未知 1男 2女
   lastLoginAt   DateTime? @map("last_login_at")

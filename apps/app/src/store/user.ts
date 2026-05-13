@@ -3,14 +3,17 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import {
   getUserInfo,
+  updateInfo,
 } from '@/api/login'
+import { DEFAULT_USER_AVATAR, DEFAULT_USER_SIGNATURE } from '@/config/userProfile'
 
 // 初始化状态
 const userInfoState: IUserInfoRes = {
   userId: -1,
   username: '',
   nickname: '',
-  avatar: '/static/images/default-avatar.png',
+  avatar: DEFAULT_USER_AVATAR,
+  signature: DEFAULT_USER_SIGNATURE,
 }
 
 export const useUserStore = defineStore(
@@ -20,13 +23,21 @@ export const useUserStore = defineStore(
 
     const setUserInfo = (val: IUserInfoRes) => {
       userInfo.value = {
+        ...userInfoState,
         ...val,
         avatar: val.avatar || userInfoState.avatar,
+        signature: val.signature || userInfoState.signature,
       }
     }
 
     const setUserAvatar = (avatar: string) => {
       userInfo.value.avatar = avatar
+    }
+
+    const updateProfile = async (payload: Parameters<typeof updateInfo>[0]) => {
+      const res = await updateInfo(payload)
+      setUserInfo(res)
+      return res
     }
 
     const clearUserInfo = () => {
@@ -46,6 +57,7 @@ export const useUserStore = defineStore(
       fetchUserInfo,
       setUserInfo,
       setUserAvatar,
+      updateProfile,
     }
   },
   {

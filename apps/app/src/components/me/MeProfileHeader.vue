@@ -26,7 +26,12 @@ const emit = defineEmits<{
   <view class="relative">
     <view class="h-200px bg-[linear-gradient(135deg,#ff6633_0%,#ff8c42_100%)] pt-safe" />
     <view class="relative z-10 mt--120px flex items-center gap-14px px-20px">
-      <image :src="props.userInfo.avatar" class="h-68px w-68px border-[3px] border-white rounded-full border-solid shadow-[0_2px_8px_rgba(0,0,0,0.15)]" mode="aspectFill" />
+      <image
+        :src="props.userInfo.avatar"
+        class="h-68px w-68px border-[3px] border-white rounded-full border-solid shadow-[0_2px_8px_rgba(0,0,0,0.15)]"
+        mode="aspectFill"
+        @tap="emit('editProfile')"
+      />
       <view class="flex-1" @click="emit('editProfile')">
         <view class="flex items-center gap-2">
           <view class="text-18px text-white font-bold">
