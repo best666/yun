@@ -49,6 +49,25 @@ export class SpotController {
     return ok(detail);
   }
 
+  @Get('map/list')
+  async getMapViewportSpots(
+    @Query('minLatitude') minLatitude: string,
+    @Query('maxLatitude') maxLatitude: string,
+    @Query('minLongitude') minLongitude: string,
+    @Query('maxLongitude') maxLongitude: string,
+    @Query('keyword') keyword?: string,
+  ) {
+    const spots = await this.spotService.getMapViewportSpots({
+      minLatitude: Number(minLatitude),
+      maxLatitude: Number(maxLatitude),
+      minLongitude: Number(minLongitude),
+      maxLongitude: Number(maxLongitude),
+      keyword,
+    });
+
+    return ok(spots);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('favorite/list')
   async getFavoriteList(@CurrentUser() currentUser: CurrentAuthUser) {

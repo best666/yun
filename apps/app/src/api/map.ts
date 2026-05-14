@@ -10,3 +10,13 @@ export function searchMapPlaces(params: {
 }) {
   return http.get<IMapSearchPlaceItem[]>('/api/map/search', params)
 }
+
+export function getMapViewportSpots(params: {
+  minLatitude: number
+  maxLatitude: number
+  minLongitude: number
+  maxLongitude: number
+  keyword?: string
+}) {
+  return http.get<IMapSearchPlaceItem[]>('/api/spot/map/list', params)
+}

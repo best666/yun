@@ -17,6 +17,17 @@ interface AmapPlaceSearchResponse {
   pois?: AmapPlaceSearchItem[];
 }
 
+export interface AmapViewportPlaceItem {
+  id: string;
+  title: string;
+  address: string;
+  category: string;
+  district: string;
+  latitude: number;
+  longitude: number;
+  distance?: number;
+}
+
 interface TencentPlaceSearchItem {
   id?: string;
   title?: string;
@@ -33,6 +44,8 @@ interface TencentPlaceSearchItem {
 }
 
 type MapProvider = 'amap' | 'tencent';
+const AMAP_VIEWPORT_PAGE_SIZE = 25;
+const AMAP_VIEWPORT_MAX_LIMIT = 200;
 
 @Injectable()
 export class MapService {
@@ -59,6 +72,80 @@ export class MapService {
           longitude: params.longitude,
           pageSize: params.pageSize,
         });
+  }
+
+  async searchAmapViewportPlaces(params: {
+    keyword?: string;
+    minLatitude: number;
+    maxLatitude: number;
+    minLongitude: number;
+    maxLongitude: number;
+    limit?: number;
+  }): Promise<AmapViewportPlaceItem[]> {
+    const keyword = params.keyword?.trim() || '美食';
+    const limit = Math.min(Math.max(Number(params.limit) || AMAP_VIEWPORT_MAX_LIMIT, 1), AMAP_VIEWPORT_MAX_LIMIT);
+    const center = {
+      latitude: (params.minLatitude + params.maxLatitude) / 2,
+      longitude: (params.minLongitude + params.maxLongitude) / 2,
+    };
+    const radius = Math.min(
+      Math.max(
+        Math.ceil(this.calculateDistanceMeters(center, {
+          latitude: params.maxLatitude,
+          longitude: params.maxLongitude,
+        })),
+        1000,
+      ),
+      50000,
+    );
+
+    const keys = this.getAmapKeys();
+    let lastErrorMessage = '高德地图范围地点搜索失败';
+
+    for (const key of keys) {
+      const places: AmapViewportPlaceItem[] = [];
+      const totalPages = Math.ceil(limit / AMAP_VIEWPORT_PAGE_SIZE);
+      let shouldTryNextKey = false;
+
+      for (let page = 1; page <= totalPages; page += 1) {
+        const query = new URLSearchParams({
+          key,
+          keywords: keyword,
+          location: `${center.longitude},${center.latitude}`,
+          radius: String(radius),
+          sortrule: 'distance',
+          offset: String(AMAP_VIEWPORT_PAGE_SIZE),
+          page: String(page),
+          extensions: 'base',
+        });
+
+        const response = await fetch(`https://restapi.amap.com/v3/place/around?${query.toString()}`);
+        const result = await response.json() as AmapPlaceSearchResponse;
+
+        if (!response.ok || result.status !== '1') {
+          lastErrorMessage = result.info || lastErrorMessage;
+          shouldTryNextKey = true;
+          break;
+        }
+
+        const serializedPlaces = (result.pois || [])
+          .map((item, index) => this.serializePlace(item, (page - 1) * AMAP_VIEWPORT_PAGE_SIZE + index))
+          .filter((item): item is AmapViewportPlaceItem => Boolean(item))
+          .filter(item => this.isInBounds(item, params));
+
+        places.push(...serializedPlaces);
+
+        if ((result.pois || []).length < AMAP_VIEWPORT_PAGE_SIZE) {
+          break;
+        }
+      }
+
+      if (!shouldTryNextKey) {
+        return this.deduplicatePlaces(places).slice(0, limit);
+      }
+    }
+
+    throw new BadRequestException(lastErrorMessage || '高德地图范围地点搜索失败');
   }
 
   private async searchAmapPlaces(params: { keyword: string; latitude?: number; longitude?: number; pageSize?: number }) {
@@ -196,7 +283,7 @@ export class MapService {
     return [...new Set(keys)];
   }
 
-  private serializePlace(item: AmapPlaceSearchItem, index: number) {
+  private serializePlace(item: AmapPlaceSearchItem, index: number): AmapViewportPlaceItem | null {
     const coordinates = this.parseLocation(item.location);
     if (!coordinates || !item.name) {
       return null;
@@ -236,6 +323,45 @@ export class MapService {
       latitude,
       longitude,
     };
+  }
+
+  private isInBounds(
+    place: { latitude: number; longitude: number },
+    bounds: { minLatitude: number; maxLatitude: number; minLongitude: number; maxLongitude: number },
+  ) {
+    return place.latitude >= bounds.minLatitude
+      && place.latitude <= bounds.maxLatitude
+      && place.longitude >= bounds.minLongitude
+      && place.longitude <= bounds.maxLongitude;
+  }
+
+  private deduplicatePlaces(places: AmapViewportPlaceItem[]) {
+    const uniquePlaces = new Map<string, AmapViewportPlaceItem>();
+
+    places.forEach((place) => {
+      if (!uniquePlaces.has(place.id)) {
+        uniquePlaces.set(place.id, place);
+      }
+    });
+
+    return Array.from(uniquePlaces.values());
+  }
+
+  private calculateDistanceMeters(
+    start: { latitude: number; longitude: number },
+    end: { latitude: number; longitude: number },
+  ) {
+    const toRadians = (value: number) => (value * Math.PI) / 180;
+    const earthRadius = 6371000;
+    const latitudeDelta = toRadians(end.latitude - start.latitude);
+    const longitudeDelta = toRadians(end.longitude - start.longitude);
+    const startLatitude = toRadians(start.latitude);
+    const endLatitude = toRadians(end.latitude);
+
+    const haversine = Math.sin(latitudeDelta / 2) ** 2
+      + Math.cos(startLatitude) * Math.cos(endLatitude) * Math.sin(longitudeDelta / 2) ** 2;
+
+    return 2 * earthRadius * Math.asin(Math.sqrt(haversine));
   }
 
   private shouldTryNextTencentKey(message: string) {

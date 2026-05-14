@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import type { IMapSearchPlaceItem, MapApiProvider } from '@/api/types/map'
+import type { IMapSearchPlaceItem, IMapViewportBounds, MapApiProvider } from '@/api/types/map'
 import type { ISearchUserItem } from '@/api/types/search'
 import HomeMapSpotCard from '@/components/home/HomeMapSpotCard.vue'
 import HomeSearchPanel from '@/components/home/HomeSearchPanel.vue'
@@ -40,13 +40,11 @@ const {
   isLoadingNearbyPlaces,
   hasPendingNearbyRefresh,
   focusMapCenter,
-  setMapCenter,
   locateOnPageOpen,
   handleRegionChange,
-  refreshNearbyPlacesAtCenter,
+  refreshNearbyPlacesInBounds,
   relocate,
 } = useHomeMapViewport({
-  currentMapProvider,
   nearbyKeyword: DEFAULT_NEARBY_KEYWORD,
 })
 
@@ -121,10 +119,15 @@ const markers = computed(() => {
 })
 
 const mapCardInteractionUntil = ref(0)
+const mapContext = shallowRef<UniApp.MapContext | null>(null)
 
 onLoad(() => {
-  locateOnPageOpen()
   void favoriteStore.ensureServerFavoritesLoaded()
+})
+
+onReady(() => {
+  mapContext.value = uni.createMapContext('home-map')
+  void initializeHomeMap()
 })
 
 onShow(() => {
@@ -157,6 +160,63 @@ function selectPlaceAndCenter(place: IMapSearchPlaceItem) {
   focusMapCenter(place)
 }
 
+async function initializeHomeMap() {
+  await locateOnPageOpen()
+  await nextTick()
+  await refreshNearbyAroundCenter(false)
+}
+
+function estimateBoundsFromCenter(): IMapViewportBounds {
+  const latitudeSpan = 0.045 * 2 ** (14 - mapScale.value)
+  const longitudeSpan = latitudeSpan / Math.max(Math.cos((mapCenter.latitude * Math.PI) / 180), 0.3)
+
+  return {
+    southwest: {
+      latitude: mapCenter.latitude - latitudeSpan / 2,
+      longitude: mapCenter.longitude - longitudeSpan / 2,
+    },
+    northeast: {
+      latitude: mapCenter.latitude + latitudeSpan / 2,
+      longitude: mapCenter.longitude + longitudeSpan / 2,
+    },
+  }
+}
+
+function getCurrentMapBounds() {
+  return new Promise<IMapViewportBounds | null>((resolve) => {
+    if (!mapContext.value) {
+      resolve(null)
+      return
+    }
+
+    mapContext.value.getRegion({
+      success(region) {
+        const southwest = region.southwest
+        const northeast = region.northeast
+
+        if (!southwest || !northeast) {
+          resolve(null)
+          return
+        }
+
+        resolve({
+          southwest: {
+            latitude: Number(southwest.latitude),
+            longitude: Number(southwest.longitude),
+          },
+          northeast: {
+            latitude: Number(northeast.latitude),
+            longitude: Number(northeast.longitude),
+          },
+        })
+      },
+      fail() {
+        resolve(null)
+      },
+    })
+  })
+}
+
 function handleOpenSearch() {
   if (showBottomCard.value) {
     clearSelection()
@@ -168,7 +228,7 @@ function handleOpenSearch() {
 function handleSpotSelected(place: IMapSearchPlaceItem) {
   closeSearch()
   selectPlaceAndCenter(place)
-  void refreshNearbyPlacesAtCenter(place)
+  void refreshNearbyAroundCenter(false)
 }
 
 function onUserSearchResultTap(user: ISearchUserItem) {
@@ -234,18 +294,30 @@ function onMapRegionChange(event: any) {
   }
 }
 
-function refreshNearbyAroundCenter() {
-  if (showBottomCard.value) {
+async function refreshNearbyAroundCenter(clearCard = true) {
+  if (clearCard && showBottomCard.value) {
     clearSelection()
   }
 
-  void refreshNearbyPlacesAtCenter()
+  const bounds = await getCurrentMapBounds() || estimateBoundsFromCenter()
+  await refreshNearbyPlacesInBounds(bounds)
+}
+
+async function handleRelocate() {
+  const nextLocation = await relocate()
+  if (!nextLocation) {
+    return
+  }
+
+  await nextTick()
+  await refreshNearbyAroundCenter(false)
 }
 </script>
 
 <template>
   <view class="relative h-screen w-screen">
     <map
+      id="home-map"
       class="h-full w-full"
       :latitude="mapCenter.latitude"
       :longitude="mapCenter.longitude"
@@ -285,7 +357,7 @@ function refreshNearbyAroundCenter() {
       @select-user="onUserSearchResultTap"
     />
 
-    <view class="fixed bottom-[calc(160px+env(safe-area-inset-bottom))] right-16px z-100 h-44px w-44px center rounded-full bg-white shadow-[0_2px_12px_rgba(0,0,0,0.1)] active:scale-90" @click="relocate">
+    <view class="fixed bottom-[calc(160px+env(safe-area-inset-bottom))] right-16px z-100 h-44px w-44px center rounded-full bg-white shadow-[0_2px_12px_rgba(0,0,0,0.1)] active:scale-90" @click="handleRelocate">
       <view class="i-carbon-location-current text-20px text-gray-600" />
     </view>
 

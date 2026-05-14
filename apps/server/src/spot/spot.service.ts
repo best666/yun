@@ -1,5 +1,6 @@
 import type { Spot, SpotDiscussion, SpotExternalSource, SpotInteractionNotification, SpotNote, SpotQuestion, SpotQuestionAnswer, SpotReview, SpotReviewReply } from '@prisma/client';
 import { ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { MapService, type AmapViewportPlaceItem } from '@/map/map.service';
 import { PrismaService } from '@/prisma/prisma.service';
 import { normalizeUserAvatar, normalizeUserNickname } from '@/user/user-profile.util';
 import { CreateSpotDiscussionDto } from './dto/create-spot-discussion.dto';
@@ -168,6 +169,14 @@ interface SpotDetailQuery {
   provider?: string;
 }
 
+interface SpotMapViewportQuery {
+  minLatitude: number;
+  maxLatitude: number;
+  minLongitude: number;
+  maxLongitude: number;
+  keyword?: string;
+}
+
 interface SeedSpot {
   name: string;
   cover: string;
@@ -217,6 +226,9 @@ const SEED_IDENTITIES = {
   y111: createSeedIdentity('111', '6366f1'),
   y112: createSeedIdentity('112', '0ea5e9'),
 } as const;
+
+const MAP_SPOT_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const MAP_SPOT_VIEW_LIMIT = 200;
 
 const DEFAULT_SPOTS: SeedSpot[] = [
   {
@@ -524,7 +536,10 @@ const DEFAULT_SPOTS: SeedSpot[] = [
 
 @Injectable()
 export class SpotService implements OnModuleInit {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mapService: MapService,
+  ) {}
 
   async onModuleInit() {
     await this.ensureSeedData();
@@ -533,6 +548,19 @@ export class SpotService implements OnModuleInit {
   async getSpotDetail(query: SpotDetailQuery, currentUserId?: number): Promise<SpotDetailItem> {
     const resolvedSpot = await this.resolveSpot(query);
     return await this.toSpotDetailItem(resolvedSpot, currentUserId);
+  }
+
+  async getMapViewportSpots(query: SpotMapViewportQuery) {
+    const bounds = this.normalizeViewportBounds(query);
+    const cachedSpots = await this.findViewportSpotsFromCache(bounds, true);
+
+    if (cachedSpots.length > 0) {
+      return cachedSpots;
+    }
+
+    await this.syncViewportSpots(bounds);
+
+    return await this.findViewportSpotsFromCache(bounds, false);
   }
 
   async getFavoriteList(userId: number) {
@@ -549,6 +577,180 @@ export class SpotService implements OnModuleInit {
     });
 
     return favorites.map(favorite => this.toFavoriteSummary(favorite.spot));
+  }
+
+  private normalizeViewportBounds(query: SpotMapViewportQuery) {
+    const minLatitude = Number(query.minLatitude);
+    const maxLatitude = Number(query.maxLatitude);
+    const minLongitude = Number(query.minLongitude);
+    const maxLongitude = Number(query.maxLongitude);
+
+    if (![minLatitude, maxLatitude, minLongitude, maxLongitude].every(value => Number.isFinite(value))) {
+      throw new NotFoundException('地图范围参数无效');
+    }
+
+    return {
+      minLatitude: Math.min(minLatitude, maxLatitude),
+      maxLatitude: Math.max(minLatitude, maxLatitude),
+      minLongitude: Math.min(minLongitude, maxLongitude),
+      maxLongitude: Math.max(minLongitude, maxLongitude),
+      keyword: query.keyword?.trim() || '美食',
+    };
+  }
+
+  private async findViewportSpotsFromCache(
+    bounds: ReturnType<SpotService['normalizeViewportBounds']>,
+    onlyFresh: boolean,
+  ) {
+    const cacheCutoff = new Date(Date.now() - MAP_SPOT_CACHE_TTL_MS);
+    const externalSources = await this.prisma.spotExternalSource.findMany({
+      where: {
+        provider: 'amap',
+        latitude: {
+          gte: bounds.minLatitude,
+          lte: bounds.maxLatitude,
+        },
+        longitude: {
+          gte: bounds.minLongitude,
+          lte: bounds.maxLongitude,
+        },
+        ...(onlyFresh
+          ? {
+              updatedAt: {
+                gte: cacheCutoff,
+              },
+            }
+          : {}),
+      },
+      include: {
+        spot: true,
+      },
+      take: MAP_SPOT_VIEW_LIMIT,
+    });
+
+    const center = {
+      latitude: (bounds.minLatitude + bounds.maxLatitude) / 2,
+      longitude: (bounds.minLongitude + bounds.maxLongitude) / 2,
+    };
+
+    return externalSources
+      .filter(source => Boolean(source.spot))
+      .map((source) => {
+        const spot = source.spot!;
+        return {
+          id: String(spot.id),
+          title: spot.name,
+          address: source.address || spot.address || '',
+          category: source.category || spot.tags || '',
+          district: source.district || '',
+          latitude: Number(source.latitude || spot.latitude || 0),
+          longitude: Number(source.longitude || spot.longitude || 0),
+          distance: this.calculateDistanceMeters(center, {
+            latitude: Number(source.latitude || spot.latitude || 0),
+            longitude: Number(source.longitude || spot.longitude || 0),
+          }),
+        };
+      })
+      .sort((left, right) => (left.distance || 0) - (right.distance || 0))
+      .slice(0, MAP_SPOT_VIEW_LIMIT);
+  }
+
+  private async syncViewportSpots(bounds: ReturnType<SpotService['normalizeViewportBounds']>) {
+    const places = await this.mapService.searchAmapViewportPlaces({
+      keyword: bounds.keyword,
+      minLatitude: bounds.minLatitude,
+      maxLatitude: bounds.maxLatitude,
+      minLongitude: bounds.minLongitude,
+      maxLongitude: bounds.maxLongitude,
+      limit: MAP_SPOT_VIEW_LIMIT,
+    });
+
+    for (const place of places) {
+      await this.upsertViewportSpot(place);
+    }
+  }
+
+  private async upsertViewportSpot(place: AmapViewportPlaceItem) {
+    const existingSource = await this.prisma.spotExternalSource.findUnique({
+      where: {
+        provider_externalId: {
+          provider: 'amap',
+          externalId: place.id,
+        },
+      },
+      select: {
+        spotId: true,
+      },
+    });
+
+    if (existingSource?.spotId) {
+      await this.prisma.spot.update({
+        where: { id: existingSource.spotId },
+        data: {
+          name: place.title,
+          address: `${place.district || ''}${place.address || ''}`,
+          latitude: place.latitude,
+          longitude: place.longitude,
+          description: `${place.title}位于${place.district || '附近区域'}，已同步为首页地图点位，可继续查看详情、收藏和社区内容。`,
+          routeTip: place.distance ? `${this.formatDistance(place.distance)} · ${place.district || '附近区域'}` : (place.district || '附近区域'),
+          navigationLabel: '可直接使用导航前往，建议到店前再次确认营业状态',
+          tags: this.normalizeTags(place.category).join(','),
+          sourceType: 'map',
+        },
+      });
+
+      await this.prisma.spotExternalSource.update({
+        where: {
+          provider_externalId: {
+            provider: 'amap',
+            externalId: place.id,
+          },
+        },
+        data: {
+          title: place.title,
+          address: place.address,
+          category: place.category,
+          district: place.district,
+          latitude: place.latitude,
+          longitude: place.longitude,
+        },
+      });
+
+      return;
+    }
+
+    await this.prisma.spot.create({
+      data: {
+        name: place.title,
+        description: `${place.title}位于${place.district || '附近区域'}，已同步为首页地图点位，可继续查看详情、收藏和社区内容。`,
+        cover: 'https://placehold.co/400x300/ea580c/white?text=MAP',
+        images: JSON.stringify([]),
+        address: `${place.district || ''}${place.address || ''}`,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        rating: 0,
+        avgPrice: 0,
+        favoriteCount: 0,
+        businessStatus: '地图收录',
+        businessHours: '以商家实际营业时间为准',
+        routeTip: place.distance ? `${this.formatDistance(place.distance)} · ${place.district || '附近区域'}` : (place.district || '附近区域'),
+        navigationLabel: '可直接使用导航前往，建议到店前再次确认营业状态',
+        tags: this.normalizeTags(place.category).join(','),
+        sourceType: 'map',
+        externalSources: {
+          create: {
+            provider: 'amap',
+            externalId: place.id,
+            title: place.title,
+            address: place.address,
+            category: place.category,
+            district: place.district,
+            latitude: place.latitude,
+            longitude: place.longitude,
+          },
+        },
+      },
+    });
   }
 
   async getMyReviews(userId: number) {
@@ -1682,5 +1884,22 @@ export class SpotService implements OnModuleInit {
     }
 
     return `${Math.round(distance)}m`;
+  }
+
+  private calculateDistanceMeters(
+    start: { latitude: number; longitude: number },
+    end: { latitude: number; longitude: number },
+  ) {
+    const toRadians = (value: number) => (value * Math.PI) / 180;
+    const earthRadius = 6371000;
+    const latitudeDelta = toRadians(end.latitude - start.latitude);
+    const longitudeDelta = toRadians(end.longitude - start.longitude);
+    const startLatitude = toRadians(start.latitude);
+    const endLatitude = toRadians(end.latitude);
+
+    const haversine = Math.sin(latitudeDelta / 2) ** 2
+      + Math.cos(startLatitude) * Math.cos(endLatitude) * Math.sin(longitudeDelta / 2) ** 2;
+
+    return 2 * earthRadius * Math.asin(Math.sqrt(haversine));
   }
 }

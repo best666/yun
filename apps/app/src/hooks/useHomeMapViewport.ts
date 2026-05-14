@@ -1,5 +1,5 @@
-import type { IMapSearchPlaceItem, MapApiProvider } from '@/api/types/map'
-import { searchMapPlaces } from '@/api/map'
+import type { IMapSearchPlaceItem, IMapViewportBounds } from '@/api/types/map'
+import { getMapViewportSpots } from '@/api/map'
 
 interface CoordinatePoint {
   latitude: number
@@ -7,7 +7,6 @@ interface CoordinatePoint {
 }
 
 interface UseHomeMapViewportOptions {
-  currentMapProvider: MapApiProvider
   nearbyKeyword: string
 }
 
@@ -115,16 +114,16 @@ export function useHomeMapViewport(options: UseHomeMapViewportOptions) {
     hasPendingNearbyRefresh.value = calculateDistanceMeters(lastFetchedCenter, center) >= NEARBY_REFRESH_DISTANCE_METERS
   }
 
-  async function fetchNearbyPlaces(center: CoordinatePoint) {
+  async function fetchNearbyPlaces(bounds: IMapViewportBounds) {
     isLoadingNearbyPlaces.value = true
 
     try {
-      nearbySpotResults.value = await searchMapPlaces({
+      nearbySpotResults.value = await getMapViewportSpots({
         keyword: options.nearbyKeyword,
-        latitude: center.latitude,
-        longitude: center.longitude,
-        pageSize: 12,
-        provider: options.currentMapProvider,
+        minLatitude: bounds.southwest.latitude,
+        maxLatitude: bounds.northeast.latitude,
+        minLongitude: bounds.southwest.longitude,
+        maxLongitude: bounds.northeast.longitude,
       })
     }
     catch (error) {
@@ -132,34 +131,39 @@ export function useHomeMapViewport(options: UseHomeMapViewportOptions) {
       console.error('加载附近地点失败', error)
     }
     finally {
-      lastFetchedCenter = { ...center }
+      lastFetchedCenter = {
+        latitude: (bounds.southwest.latitude + bounds.northeast.latitude) / 2,
+        longitude: (bounds.southwest.longitude + bounds.northeast.longitude) / 2,
+      }
       hasPendingNearbyRefresh.value = false
       isLoadingNearbyPlaces.value = false
     }
   }
 
-  async function refreshNearbyPlacesAtCenter(center: CoordinatePoint = mapCenter) {
-    await fetchNearbyPlaces(center)
+  async function refreshNearbyPlacesInBounds(bounds: IMapViewportBounds) {
+    await fetchNearbyPlaces(bounds)
   }
 
   function applyInitialLocation(point: CoordinatePoint) {
     const nextCenter = isInYunnan(point) ? point : DEFAULT_KUNMING_CENTER
     setMapCenter(nextCenter)
-    void fetchNearbyPlaces(nextCenter)
+    return nextCenter
   }
 
   function locateOnPageOpen() {
-    uni.getLocation({
-      type: 'gcj02',
-      success(res) {
-        applyInitialLocation({
-          latitude: res.latitude,
-          longitude: res.longitude,
-        })
-      },
-      fail() {
-        applyInitialLocation(DEFAULT_KUNMING_CENTER)
-      },
+    return new Promise<CoordinatePoint>((resolve) => {
+      uni.getLocation({
+        type: 'gcj02',
+        success(res) {
+          resolve(applyInitialLocation({
+            latitude: res.latitude,
+            longitude: res.longitude,
+          }))
+        },
+        fail() {
+          resolve(applyInitialLocation(DEFAULT_KUNMING_CENTER))
+        },
+      })
     })
   }
 
@@ -190,20 +194,23 @@ export function useHomeMapViewport(options: UseHomeMapViewportOptions) {
   }
 
   function relocate() {
-    uni.getLocation({
-      type: 'gcj02',
-      success(res) {
-        const currentLocation = {
-          latitude: res.latitude,
-          longitude: res.longitude,
-        }
+    return new Promise<CoordinatePoint | null>((resolve) => {
+      uni.getLocation({
+        type: 'gcj02',
+        success(res) {
+          const currentLocation = {
+            latitude: res.latitude,
+            longitude: res.longitude,
+          }
 
-        setMapCenter(currentLocation)
-        void fetchNearbyPlaces(currentLocation)
-      },
-      fail() {
-        uni.showToast({ title: '定位失败', icon: 'none' })
-      },
+          setMapCenter(currentLocation)
+          resolve(currentLocation)
+        },
+        fail() {
+          uni.showToast({ title: '定位失败', icon: 'none' })
+          resolve(null)
+        },
+      })
     })
   }
 
@@ -217,7 +224,7 @@ export function useHomeMapViewport(options: UseHomeMapViewportOptions) {
     setMapCenter,
     locateOnPageOpen,
     handleRegionChange,
-    refreshNearbyPlacesAtCenter,
+    refreshNearbyPlacesInBounds,
     relocate,
   }
 }
